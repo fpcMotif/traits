@@ -12,7 +12,7 @@ All paths below are relative to the repository root.
 
 ## Verification
 
-- Run checks from the root: `bunx vp check` for formatting/lint/types; `bun run build` after TypeScript changes (`--force` after config changes).
+- Run checks from the root: `bunx vp check` for formatting/lint/types; `bun run check` (`bun check -b`) after TypeScript changes. `bun run build` runs `tsc -b` only to emit `traits/dist` for publishing.
 - Run affected suites: `bun run test:rules` and `bun run test:traits`. The traits suite may be empty; do not call an empty suite a behavior-test pass. The static site has no test project. `bun run test` runs checks, builds, and suites; docs-only edits need no build/tests.
 - After dependency changes, run `bun install`; after traits exports/publishing changes, run `bun pm pack` in `traits/` and verify the tarball's imports/types in a consumer.
 - After frontend changes, run `bun run --filter traits.sh build`. No deployment is required for this verification.

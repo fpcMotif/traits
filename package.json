@@ -39,7 +39,8 @@
     "format": "vp fmt .",
     "prepare": "effect-tsgo patch --oxlint",
     "build": "tsc -b tsconfig.json",
-    "test": "vp check && bun run build && bun run test:rules && bun run test:traits",
+    "check": "bun check -b",
+    "test": "vp check && bun run check && bun run test:rules && bun run test:traits",
     "test:rules": "vp test run --project rules",
     "test:traits": "vp test run --project traits --passWithNoTests",
     "test:traits:integration": "varlock run -- vp test run --config traits.integration.config.ts"
