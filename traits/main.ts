@@ -7,34 +7,22 @@ import { FetchHttpClient } from "effect/http"
 
 import * as TraitsConfigProvider from "./_util/TraitsConfigProvider.ts"
 import * as TraitsTelemetry from "./_util/TraitsTelemetry.ts"
+import * as Cli from "./Cli.ts"
 import PackageJson from "./package.json" with { type: "json" }
 import * as ConfigurationError from "./toolkit/ConfigurationError.ts"
 import { toolkit } from "./toolkit/toolkit.ts"
 import * as TraitsConfig from "./TraitsConfig.ts"
 import * as TraitStore from "./TraitStore.ts"
 
-Command.make("traits", {
-  otlpEndpoint: Flag.String("otlp-endpoint").pipe(
-    Flag.withSchema(
-      S.URLFromString.check(
-        S.makeFilter(
-          (url) => url.protocol === "http:" || url.protocol === "https:" || "Use an HTTP(S) collector base URL."
-        )
-      )
-    ),
-    Flag.withDescription(
-      "Export traces and logs as OTLP/HTTP JSON to this collector base URL (for example, http://127.0.0.1:4318). Disabled when omitted."
-    ),
-    Flag.optional
-  )
-}).pipe(
-  Command.withDescription("Run the traits MCP server over stdio"),
-  Command.withHandler((params) =>
-    McpServer.layerStdio({
-      name: "traits",
-      version: PackageJson.version,
-      protocols: [McpProtocol.v2025_11_25],
-      instructions: String.stripMargin(`
+const layerTelemetry = (otlpEndpoint: Option.Option<URL>) =>
+  TraitsTelemetry.layer(Option.getOrUndefined(otlpEndpoint)).pipe(Layer.provideMerge(FetchHttpClient.layer))
+
+const serve = (otlpEndpoint: Option.Option<URL>) =>
+  McpServer.layerStdio({
+    name: "traits",
+    version: PackageJson.version,
+    protocols: [McpProtocol.v2025_11_25],
+    instructions: String.stripMargin(`
       | Traits are durable, domain-neutral requirements with optional supporting context. The filesystem adapter stores each as .agents/traits/<name>.md, with a unique descriptive kebab-case name (no redundant trait- prefix) in frontmatter and no separate id.
       | The unique name is the canonical identity across storage backends. Use exact names for focused traitNames selections and ignore directives, not filenames. Update references after renaming. Duplicate names are rejected.
       | Before completing a response to a user correction, coding preference, or approved alternative idiom, check whether it expresses a reusable rule.
@@ -98,28 +86,66 @@ Command.make("traits", {
       | After approval, inspect the entire affected store. Distinguish installed-schema mismatches and repairable legacy formats from malformed YAML or missing/unterminated frontmatter; not every parse error is a migration. Preserve names, authoritative requirements, applicability, exceptions, examples, and all supporting context; leave valid traits unchanged. Ask focused questions for ambiguous or unsupported repairs instead of guessing or dropping information.
       | Validate every affected-store file against the installed Trait schema and serialization format, then retry the originally blocked operation with its original arguments. No server restart is needed. The original failure is not a successful check; report success only after a successful retry. This recovery protocol is core MCP behavior, not a trait to save.
       `)
-    }).pipe(
-      Layer.provide(
-        toolkit.pipe(
-          Layer.provide(TraitStore.layerFileSystem(".agents/traits")),
-          Layer.provide(TraitsConfig.layer),
-          Layer.provide(TraitsConfigProvider.layer),
-          Layer.catchCause(ConfigurationError.layer),
-          Layer.provideMerge(McpServer.McpServer.layer)
+  }).pipe(
+    Layer.provide(
+      toolkit.pipe(
+        Layer.provide(TraitStore.layerFileSystem(".agents/traits")),
+        Layer.provide(TraitsConfig.layer),
+        Layer.provide(TraitsConfigProvider.layer),
+        Layer.catchCause(ConfigurationError.layer),
+        Layer.provideMerge(McpServer.McpServer.layer)
+      )
+    ),
+    Layer.launch,
+    Effect.withSpan("traits.server"),
+    Effect.provide(layerTelemetry(otlpEndpoint))
+  )
+
+const traits = Command.make("traits").pipe(
+  Command.withSharedFlags({
+    otlpEndpoint: Flag.String("otlp-endpoint").pipe(
+      Flag.withSchema(
+        S.URLFromString.check(
+          S.makeFilter(
+            (url) => url.protocol === "http:" || url.protocol === "https:" || "Use an HTTP(S) collector base URL."
+          )
         )
       ),
-      Layer.launch,
-      Effect.withSpan("traits.server"),
-      Effect.provide(
-        TraitsTelemetry.layer(Option.getOrUndefined(params.otlpEndpoint)).pipe(
-          Layer.provideMerge(FetchHttpClient.layer)
-        )
-      )
+      Flag.withDescription(
+        "Export traces and logs as OTLP/HTTP JSON to this collector base URL (for example, http://127.0.0.1:4318). Disabled when omitted."
+      ),
+      Flag.optional
     )
-  ),
+  }),
+  Command.withDescription("Run the traits MCP server over stdio, or a check or derive subcommand"),
+  Command.withHandler((params) => serve(params.otlpEndpoint))
+)
+
+const mcp = Command.make("mcp", {}, () => Effect.flatMap(traits, (root) => serve(root.otlpEndpoint))).pipe(
+  Command.withDescription("Run the traits MCP server over stdio")
+)
+
+const check = Command.make("check", Cli.checkFlags, (flags) =>
+  Effect.flatMap(traits, (root) => Cli.runCheck(flags).pipe(Effect.provide(layerTelemetry(root.otlpEndpoint))))
+).pipe(
+  Command.withDescription(
+    "Check files against traits like check_traits. Exit 0 clean, 1 findings, 2 failure, 3 nothing selected."
+  )
+)
+
+const derive = Command.make("derive", {}, () =>
+  Effect.flatMap(traits, (root) => Cli.runDerive().pipe(Effect.provide(layerTelemetry(root.otlpEndpoint))))
+).pipe(
+  Command.withDescription(
+    "Read derive_trait input JSON from stdin and print the TraitDerivation outcome JSON. Exit 2 on failure."
+  )
+)
+
+traits.pipe(
+  Command.withSubcommands([mcp, check, derive]),
   Command.run({ version: PackageJson.version }),
   Effect.provide(NodeServices.layer),
-  Effect.tapCause(Effect.logError),
+  Effect.tapCause(Cli.reportExit),
   Effect.provideService(Logger.LogToStderr, true),
   NodeRuntime.runMain({ disableErrorReporting: true })
 )

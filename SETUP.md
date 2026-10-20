@@ -145,6 +145,16 @@ exposed, and that the agent discovers the skill. Report manual
 credential/reconnection steps and blocked checks without claiming setup passed.
 Do not create a trait merely to test installation.
 
+### 7. Optional: call Traits without MCP
+
+Hooks and CI can run `traits check --include '<glob>' --json` and
+`traits derive` (input JSON on stdin) from the checkout root. `check` exits 0
+for no findings, 1 for findings, 2 for an operational failure, and 3 when
+nothing was selected. `derive` prints the tagged outcome as JSON and exits 2 on
+failure. Both skip the launcher's dependency install, so install dependencies
+first. To verify, run `traits check --include 'traits.ts' --json` and confirm
+that it prints JSON and exits 0 or 1.
+
 ## Troubleshooting
 
 ### Dependency-linked skills

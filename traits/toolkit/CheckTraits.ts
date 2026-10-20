@@ -77,61 +77,64 @@ export const CheckTraits = Tool.make("check_traits", {
 
 export const toolkit = Toolkit.make(CheckTraits)
 
-export const layer = toolkit.toLayer({
-  check_traits: Effect.fn("CheckTraits.check")(function* (params) {
-    const store = yield* TraitStore
-    const context = yield* TraitsContext
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const cwd = path.resolve()
-    const includedFiles = yield* getIncludedFiles
-    const traits = yield* params.traitNames === undefined
-      ? store.ls
-      : Effect.forEach(Array.dedupe(params.traitNames), store.get, { concurrency: "unbounded" })
-    const matches = yield* Effect.forEach(
-      params.include,
-      (pattern) => {
-        const absolute = path.isAbsolute(pattern) ? pattern : `${cwd}${path.sep}${pattern}`
-        return fs.glob(absolute, {
-          root: context.configRoot,
-          exclude: context.excludes
+export const check = Effect.fn("CheckTraits.check")(function* (params: typeof CheckTraits.parametersSchema.Type) {
+  const store = yield* TraitStore
+  const context = yield* TraitsContext
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const cwd = path.resolve()
+  const includedFiles = yield* getIncludedFiles
+  const traits = yield* params.traitNames === undefined
+    ? store.ls
+    : Effect.forEach(Array.dedupe(params.traitNames), store.get, { concurrency: "unbounded" })
+  const matches = yield* Effect.forEach(
+    params.include,
+    (pattern) => {
+      const absolute = path.isAbsolute(pattern) ? pattern : `${cwd}${path.sep}${pattern}`
+      return fs.glob(absolute, {
+        root: context.configRoot,
+        exclude: context.excludes
+      })
+    },
+    { concurrency: "unbounded" }
+  )
+  const resolved = pipe(
+    matches,
+    Array.flatten,
+    Array.map((file) => path.resolve(context.configRoot, file)),
+    Array.dedupe
+  )
+  const paths = yield* Effect.filter(
+    includedFiles === undefined ? resolved : Array.filter(resolved, (file) => includedFiles.has(file)),
+    flow(
+      fs.stat,
+      Effect.map((info) => info.type === "File")
+    ),
+    { concurrency: "unbounded" }
+  )
+  const findings = yield* Effect.forEach(
+    paths,
+    Effect.fn("CheckTraits.file")(function* (file) {
+      const text = yield* fs.readFileString(file)
+      const activeTraits = pipe(traits, excludeIgnored(text))
+      const chunks = Array.chunksOf(String.split(text, "\n"), 200)
+      const sources = Array.map(chunks, (lines, index) =>
+        Source.make({
+          text: Array.join(lines, "\n"),
+          location: SourceLocation.cases.File.make({ path: file, startLine: index * 200 + 1 })
         })
-      },
-      { concurrency: "unbounded" }
-    )
-    const resolved = pipe(
-      matches,
-      Array.flatten,
-      Array.map((file) => path.resolve(context.configRoot, file)),
-      Array.dedupe
-    )
-    const paths = yield* Effect.filter(
-      includedFiles === undefined ? resolved : Array.filter(resolved, (file) => includedFiles.has(file)),
-      flow(
-        fs.stat,
-        Effect.map((info) => info.type === "File")
-      ),
-      { concurrency: "unbounded" }
-    )
-    return yield* Effect.forEach(
-      paths,
-      Effect.fn("CheckTraits.file")(function* (file) {
-        const text = yield* fs.readFileString(file)
-        const activeTraits = pipe(traits, excludeIgnored(text))
-        const chunks = Array.chunksOf(String.split(text, "\n"), 200)
-        const sources = Array.map(chunks, (lines, index) =>
-          Source.make({
-            text: Array.join(lines, "\n"),
-            location: SourceLocation.cases.File.make({ path: file, startLine: index * 200 + 1 })
-          })
-        )
-        return yield* Effect.forEach(
-          sources,
-          (source) => Evaluation.evaluateAll(activeTraits, source, params.circumstances),
-          { concurrency: "unbounded" }
-        ).pipe(Effect.map(flow(Array.flatten, Array.filter(Evaluation.requiresReview))))
-      }),
-      { concurrency: "unbounded" }
-    ).pipe(Effect.map(Array.flatten))
-  })
+      )
+      return yield* Effect.forEach(
+        sources,
+        (source) => Evaluation.evaluateAll(activeTraits, source, params.circumstances),
+        { concurrency: "unbounded" }
+      ).pipe(Effect.map(flow(Array.flatten, Array.filter(Evaluation.requiresReview))))
+    }),
+    { concurrency: "unbounded" }
+  ).pipe(Effect.map(Array.flatten))
+  return { paths, traits, findings }
+})
+
+export const layer = toolkit.toLayer({
+  check_traits: (params) => check(params).pipe(Effect.map((result) => result.findings))
 })

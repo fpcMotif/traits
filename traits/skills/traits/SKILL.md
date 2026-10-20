@@ -382,6 +382,24 @@ simultaneous installations in the same worktree. During development, use
 `node traits/bin.ts` with a Node version supporting native TypeScript execution;
 pass server flags after the filename.
 
+### CLI without MCP
+
+`traits` with no subcommand, or `traits mcp`, runs the MCP server. Hooks, CI,
+and shell scripts can call the same logic directly. The `check` and `derive`
+subcommands skip the dependency install, so run them in an installed checkout.
+
+- `traits check --include <path or glob> [--trait <name>] [--circumstances <text>] [--json]`
+  runs `check_traits`. Repeat `--include` and `--trait` for more. Omitting
+  `--trait` checks every stored trait. With `--json`, stdout is the
+  `check_traits` result. The exit code is 0 for no findings, 1 for findings, 2
+  for an operational failure (config, model, or I/O), and 3 when nothing was
+  selected.
+- `traits derive` reads one `derive_trait` input object as JSON on stdin and
+  prints the tagged outcome as JSON, including `GenerationRequired` and
+  `ApprovalRequired`. The CLI has no approval form: ask the user, then send
+  `approved: true` only after Save. The exit code is 0 for any outcome and 2 for
+  a failure.
+
 Surface tool failures; never treat a failed operation as a successful save or
 review. Error diagnostics may contain sensitive information. Never ask for
 credentials in chat.

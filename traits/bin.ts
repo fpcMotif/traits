@@ -14,9 +14,12 @@ const candidates = [
   ["bun", ["bun.lock", "bun.lockb"]]
 ] as const
 
-const [command, args] = installCommand(process.cwd())
-process.stderr.write(`[traits] Installing dependencies in ${process.cwd()} using ${command}\n`)
-await install(command, args)
+const subcommand = process.argv.slice(2).find((arg) => !arg.startsWith("-"))
+if (subcommand !== "check" && subcommand !== "derive") {
+  const [command, args] = installCommand(process.cwd())
+  process.stderr.write(`[traits] Installing dependencies in ${process.cwd()} using ${command}\n`)
+  await install(command, args)
+}
 await import("./main.ts")
 
 function installCommand(root: string): [string, string[]] {
