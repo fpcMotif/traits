@@ -139,8 +139,11 @@ Hooks and CI can run `traits check`, `traits derive` (input JSON on stdin), and
 (staged, unstaged, and untracked). It exits 0 when no finding reaches
 `--fail-on` (default `fix`), 1 when one does, and 2 on an operational failure.
 When nothing is selected, it prints a note on stderr and exits 0. `derive`
-prints the tagged outcome as JSON and exits 2 on failure. The subcommands skip
-the launcher's dependency install, so install dependencies first.
+prints the tagged outcome as JSON and exits 2 on failure. Traits never installs
+dependencies, so install them first. `check` skips a file and trait pair over
+the Jev request budget, reports it as `skipped: too-large`, and counts it as
+`unsure` for `--fail-on`. An operational failure prints one line on stderr. Add
+`--verbose` for the full cause.
 
 For an editor hook,
 `traits check --stdin --stdin-filepath <repo-relative path> --kind edit|write`

@@ -1,5 +1,45 @@
 # traits
 
+## Unreleased (fpcMotif fork)
+
+This fork is not published to npm. The `traits` bin runs `main.ts` from source
+and never installs dependencies.
+
+### Minor Changes
+
+- Make `layerLanguageModel` optional. Without it, `derive_trait` returns
+  `GenerationRequired` for trait decomposition and reconciliation, and the
+  calling agent supplies the JSON through the new `generated` parameter. Configs
+  that provide a language model keep the current behavior.
+
+- Add `traits check`, `traits derive`, and `traits ls` CLI subcommands so hooks,
+  CI, and shell scripts can use Traits without MCP. `check` defaults to changed
+  files, takes `--target`, `--include`, `--trait`, `--path`, `--model`, and
+  verdict thresholds, and supports `--json`, `--quiet`, and a network-free
+  `--dry-run` plan. It exits 0 when no finding reaches `--fail-on` (default
+  `fix`), 1 when one does, and 2 for an operational failure. `derive` reads
+  `derive_trait` input JSON on stdin, prints the outcome as JSON, and never
+  writes under `--dry-run`. `layerDecisionModel` may now be a function
+  `({ model }) => Layer` so that `--model` can choose the Jev model. Running
+  `traits` with no subcommand, or `traits mcp`, still starts the MCP server.
+
+- Read grouped traits: every folder under `.agents/traits` is a read-only group
+  whose top-level Markdown files are traits named `group/name`, filtered by
+  optional `paths` globs and `when` regexes. `derive_trait` returns
+  `GroupedTraitReadOnly` instead of changing a grouped trait. `traits check`
+  accepts `--stdin --stdin-filepath <path> --kind edit|write`, and `Verdict` is
+  exported from the package root. Traits no longer reads `.env` files;
+  configuration comes from the process environment only.
+
+- `traits check` skips a file and trait pair over the Jev request budget instead
+  of failing the whole check. The skip shows as `skipped: too-large` in
+  `--json`, the dry-run plan, and human output, and the summary counts it. Skips
+  count as `unsure` for `--fail-on`. Operational failures print one line on
+  stderr and exit 2. `--verbose` prints the full cause.
+
+- Remove the `tsc` build, `traits/dist`, the dependency-installing `bin.ts`
+  launcher, and the Changesets and preview publish workflows.
+
 ## 0.5.9
 
 ### Patch Changes

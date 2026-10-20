@@ -8,8 +8,6 @@
       "traits.sh"
     ],
     "catalog": {
-      "@changesets/changelog-github": "1.0.1",
-      "@changesets/cli": "3.0.3",
       "@effect/ai-typesafe": "4.0.0",
       "@effect/atom-react": "4.0.0",
       "@effect/platform-browser": "4.0.0",
@@ -21,7 +19,6 @@
       "@types/react": "19.3.0",
       "@types/react-dom": "19.3.0",
       "effect": "4.0.0",
-      "pkg-pr-new": "0.0.91",
       "react": "19.3.0",
       "react-dom": "19.3.0",
       "typescript": "7.0.2",
@@ -34,10 +31,8 @@
   "type": "module",
   "scripts": {
     "tasks": "node tasks/main.ts",
-    "changeset": "changeset",
     "format": "vp fmt .",
     "prepare": "effect-tsgo patch --oxlint",
-    "build": "tsc -b tsconfig.json",
     "check": "bun check -b",
     "test": "vp check && bun run check && bun run test:rules && bun run test:traits",
     "test:rules": "vp test run --project rules",
@@ -49,13 +44,10 @@
     "traits": "workspace:*"
   },
   "devDependencies": {
-    "@changesets/changelog-github": "catalog:",
-    "@changesets/cli": "catalog:",
     "@effect/ai-typesafe": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/tsgo": "catalog:",
     "@types/node": "catalog:",
-    "pkg-pr-new": "catalog:",
     "typescript": "catalog:",
     "varlock": "catalog:",
     "vite-plus": "catalog:"

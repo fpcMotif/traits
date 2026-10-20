@@ -8,21 +8,14 @@
     "directory": "traits"
   },
   "bin": {
-    "traits": "./dist/bin.js"
+    "traits": "./main.ts"
   },
   "files": [
     "*.ts",
     "!vite.config.ts",
     "_util/**/*.ts",
     "skills/**/*.md",
-    "toolkit/**/*.ts",
-    "dist/package.json",
-    "dist/**/*.js",
-    "dist/**/*.js.map",
-    "dist/**/*.d.ts",
-    "dist/**/*.d.ts.map",
-    "!dist/vite.config.*",
-    "!dist/integration/**"
+    "toolkit/**/*.ts"
   ],
   "type": "module",
   "exports": {
@@ -31,16 +24,6 @@
     "./*": "./*.ts",
     "./_util/*": null,
     "./index": null
-  },
-  "publishConfig": {
-    "exports": {
-      "./package.json": "./package.json",
-      ".": "./dist/index.js",
-      "./*": "./dist/*.js",
-      "./_util/*": null,
-      "./index": null
-    },
-    "access": "public"
   },
   "dependencies": {
     "@effect/ai-typesafe": "^4.0.0",

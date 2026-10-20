@@ -372,22 +372,16 @@ skipped remediation or lost signal.
 
 ## Operation
 
-The CLI launcher installs project dependencies in its current directory before
-importing the MCP server. Run it from the checkout/workspace root. It selects
-the package manager from `package.json#packageManager` or an unambiguous
-lockfile; the selected executable must be on PATH. Installation preserves
-lockfiles but can execute lifecycle scripts, so only launch in trusted
-checkouts. Allow enough MCP startup time for a cold install and avoid
-simultaneous installations in the same worktree. During development, use
-`node traits/bin.ts` with a Node version supporting native TypeScript execution;
-pass server flags after the filename.
+The CLI runs from source and never installs dependencies. Install them first,
+then run it from the checkout/workspace root. During development, use
+`bun traits/main.ts`, or `node traits/main.ts` with a Node version that supports
+native TypeScript execution. Pass server flags after the filename.
 
 ### CLI without MCP
 
 `traits` with no subcommand, or `traits mcp`, runs the MCP server. Hooks, CI,
-and shell scripts can call the same logic directly. The `check`, `derive`, and
-`ls` subcommands skip the dependency install, so run them in an installed
-checkout. Put `--otlp-endpoint` before the subcommand.
+and shell scripts can call the same logic directly. Put `--otlp-endpoint` before
+the subcommand.
 
 - `traits check` checks files against traits with Jev.
   - `--target changed|staged|unstaged|untracked|files` picks the files. The
@@ -409,10 +403,16 @@ checkout. Put `--otlp-endpoint` before the subcommand.
     code from stdin. `edit` is a snippet and `write` (default) is a whole file.
     Grouped `paths` and `when` use the given path and the stdin code.
   - `--trait` accepts `name` and `group/name`.
+  - A file and trait pair over the 24,000-byte Jev request budget is skipped,
+    and the check goes on. The skip appears as `skipped: too-large` in `--json`
+    and the dry-run plan, and as a `skip` line in human output, with the file,
+    the trait, and the size against the budget. The summary counts skips.
   - The exit code is 0 when no finding reaches
     `--fail-on fix|check|unsure|never` (default `fix`), 1 when one does, and 2
-    for an operational failure (config, model, or I/O). Nothing selected prints
-    a stderr note and exits 0.
+    for an operational failure (config, model, or I/O). A skipped pair counts as
+    `unsure`. Nothing selected prints a stderr note and exits 0.
+  - An operational failure prints one line on stderr. `--verbose` prints the
+    full cause and stack trace. OTLP telemetry always records the full cause.
 - `traits derive [--dry-run]` reads one `derive_trait` input object as JSON on
   stdin and prints the tagged outcome as JSON, including `GenerationRequired`
   and `ApprovalRequired`. The CLI has no approval form: ask the user, then send
