@@ -1,4 +1,3 @@
-import { presets, recommended } from "@effect/tsgo/oxlint-presets"
 import { Record } from "effect"
 import { defineConfig } from "vite-plus"
 
@@ -19,11 +18,9 @@ export default defineConfig({
     semi: false,
     sortImports: {},
     sortPackageJson: {},
-    sortTailwindcss: { functions: ["cn"] },
     trailingComma: "none"
   },
   lint: {
-    extends: [recommended],
     ignorePatterns: toolingIgnores,
     jsPlugins: [
       { name: "vite-plus", specifier: "vite-plus/oxlint-plugin" },
@@ -31,24 +28,6 @@ export default defineConfig({
     ],
     options: { typeAware: true, typeCheck: true },
     rules: {
-      ...Record.mapEntries(
-        {
-          ...presets.correctness.rules,
-          ...presets.antipattern.rules,
-          ...presets.effectNative.rules,
-          ...presets.style.rules
-        },
-        (_, name) => [name, "error"] as const
-      ),
-      "effecttsgo/effect-succeed-with-void": "off",
-      "effecttsgo/experimental-api-usage": "error",
-      "effecttsgo/layer-merge-all-with-dependencies": "off",
-      "effecttsgo/lazy-effect": "off",
-      "effecttsgo/node-builtin-import": "off",
-      "effecttsgo/prefer-schema-over-json": "off",
-      "effecttsgo/return-effect-in-gen": "off",
-      "effecttsgo/strict-effect-provide": "off",
-      "effecttsgo/unstable-api-usage": "off",
       "typescript/no-import-type-side-effects": "error",
       ...Record.mapEntries(custom.rules, (_, name) => [`custom/${name}`, "error"] as const),
       "vite-plus/prefer-vite-plus-imports": "error"
