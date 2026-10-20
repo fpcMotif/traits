@@ -59,13 +59,11 @@ const question = (trait: Trait) =>
 
 type BatchEntry = { readonly trait: Trait; readonly question: ReturnType<typeof question> }
 
-export const evaluateAll = Effect.fn("TraitEvaluation.evaluateAll")(function* (
+export const planBatches = Effect.fn("TraitEvaluation.planBatches")(function* (
   traits: ReadonlyArray<Trait>,
   source: Source,
   circumstances?: string
 ) {
-  if (traits.length === 0) return []
-  const context = yield* TraitsContext
   const input = { source, ...(circumstances === undefined ? {} : { circumstances }) }
   const inputBytes = new TextEncoder().encode(JSON.stringify(input)).length
   const batches: Array<Array<BatchEntry>> = []
@@ -91,6 +89,18 @@ export const evaluateAll = Effect.fn("TraitEvaluation.evaluateAll")(function* (
     bytes += questionBytes
   }
   if (batch.length > 0) batches.push(batch)
+  return batches
+})
+
+export const evaluateAll = Effect.fn("TraitEvaluation.evaluateAll")(function* (
+  traits: ReadonlyArray<Trait>,
+  source: Source,
+  circumstances?: string
+) {
+  if (traits.length === 0) return []
+  const context = yield* TraitsContext
+  const input = { source, ...(circumstances === undefined ? {} : { circumstances }) }
+  const batches = yield* planBatches(traits, source, circumstances)
   return yield* Effect.forEach(
     batches,
     Effect.fn("TraitEvaluation.batch")(function* (entries) {

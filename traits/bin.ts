@@ -15,7 +15,7 @@ const candidates = [
 ] as const
 
 const subcommand = process.argv.slice(2).find((arg) => !arg.startsWith("-"))
-if (subcommand !== "check" && subcommand !== "derive") {
+if (subcommand !== "check" && subcommand !== "derive" && subcommand !== "ls") {
   const [command, args] = installCommand(process.cwd())
   process.stderr.write(`[traits] Installing dependencies in ${process.cwd()} using ${command}\n`)
   await install(command, args)

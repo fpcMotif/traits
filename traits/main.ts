@@ -129,20 +129,24 @@ const check = Command.make("check", Cli.checkFlags, (flags) =>
   Effect.flatMap(traits, (root) => Cli.runCheck(flags).pipe(Effect.provide(layerTelemetry(root.otlpEndpoint))))
 ).pipe(
   Command.withDescription(
-    "Check files against traits like check_traits. Exit 0 clean, 1 findings, 2 failure, 3 nothing selected."
+    "Check files against traits with Jev. Exit 0 when nothing reaches --fail-on, 1 when something does, 2 on failure."
   )
 )
 
-const derive = Command.make("derive", {}, () =>
-  Effect.flatMap(traits, (root) => Cli.runDerive().pipe(Effect.provide(layerTelemetry(root.otlpEndpoint))))
+const derive = Command.make("derive", Cli.deriveFlags, (flags) =>
+  Effect.flatMap(traits, (root) => Cli.runDerive(flags).pipe(Effect.provide(layerTelemetry(root.otlpEndpoint))))
 ).pipe(
   Command.withDescription(
     "Read derive_trait input JSON from stdin and print the TraitDerivation outcome JSON. Exit 2 on failure."
   )
 )
 
+const ls = Command.make("ls", Cli.lsFlags, Cli.runLs).pipe(
+  Command.withDescription("List stored traits with their names and source files.")
+)
+
 traits.pipe(
-  Command.withSubcommands([mcp, check, derive]),
+  Command.withSubcommands([mcp, check, derive, ls]),
   Command.run({ version: PackageJson.version }),
   Effect.provide(NodeServices.layer),
   Effect.tapCause(Cli.reportExit),

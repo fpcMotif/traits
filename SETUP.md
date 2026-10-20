@@ -147,13 +147,22 @@ Do not create a trait merely to test installation.
 
 ### 7. Optional: call Traits without MCP
 
-Hooks and CI can run `traits check --include '<glob>' --json` and
-`traits derive` (input JSON on stdin) from the checkout root. `check` exits 0
-for no findings, 1 for findings, 2 for an operational failure, and 3 when
-nothing was selected. `derive` prints the tagged outcome as JSON and exits 2 on
-failure. Both skip the launcher's dependency install, so install dependencies
-first. To verify, run `traits check --include 'traits.ts' --json` and confirm
-that it prints JSON and exits 0 or 1.
+Hooks and CI can run `traits check`, `traits derive` (input JSON on stdin), and
+`traits ls` from the checkout root. `check` defaults to the changed files
+(staged, unstaged, and untracked). It exits 0 when no finding reaches
+`--fail-on` (default `fix`), 1 when one does, and 2 on an operational failure.
+When nothing is selected, it prints a note on stderr and exits 0. `derive`
+prints the tagged outcome as JSON and exits 2 on failure. The subcommands skip
+the launcher's dependency install, so install dependencies first.
+
+To let `--model` choose the Jev model, export `layerDecisionModel` as a function
+`({ model }) => Layer`. It receives `jev-latest` by default. A `Layer` export
+keeps its own model, and `--model` then fails with exit 2.
+
+To verify without a key, run `traits check --include 'traits.ts' --dry-run` and
+confirm that it prints the plan and exits 0. With the key set, run
+`traits check --include 'traits.ts' --json` and confirm that it prints JSON and
+exits 0 or 1.
 
 ## Troubleshooting
 

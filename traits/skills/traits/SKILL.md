@@ -385,20 +385,37 @@ pass server flags after the filename.
 ### CLI without MCP
 
 `traits` with no subcommand, or `traits mcp`, runs the MCP server. Hooks, CI,
-and shell scripts can call the same logic directly. The `check` and `derive`
-subcommands skip the dependency install, so run them in an installed checkout.
+and shell scripts can call the same logic directly. The `check`, `derive`, and
+`ls` subcommands skip the dependency install, so run them in an installed
+checkout. Put `--otlp-endpoint` before the subcommand.
 
-- `traits check --include <path or glob> [--trait <name>] [--circumstances <text>] [--json]`
-  runs `check_traits`. Repeat `--include` and `--trait` for more. Omitting
-  `--trait` checks every stored trait. With `--json`, stdout is the
-  `check_traits` result. The exit code is 0 for no findings, 1 for findings, 2
-  for an operational failure (config, model, or I/O), and 3 when nothing was
-  selected.
-- `traits derive` reads one `derive_trait` input object as JSON on stdin and
-  prints the tagged outcome as JSON, including `GenerationRequired` and
-  `ApprovalRequired`. The CLI has no approval form: ask the user, then send
-  `approved: true` only after Save. The exit code is 0 for any outcome and 2 for
-  a failure.
+- `traits check` checks files against traits with Jev.
+  - `--target changed|staged|unstaged|untracked|files` picks the files. The
+    default `changed` is staged, unstaged, and untracked files.
+  - `--include <path or glob>` picks files and implies `--target files`. Repeat
+    it for more. `--trait <name>` limits the traits. Repeat it for more.
+    Omitting `--trait` checks every stored trait.
+  - `--path <dir>` runs in another checkout. `--circumstances <text>` adds
+    context. `--model <id>` picks the Jev model (default `jev-latest`).
+  - Each assessment gets a verdict. `fix` means violation ≥ `--fix-threshold`
+    (0.8). `check` means violation ≥ `--check-threshold` (0.5). `unsure` means
+    compliant plus not-applicable < `--pass-threshold` (0.9). Otherwise the
+    verdict is `pass`.
+  - `--json` prints the non-pass findings with probabilities and verdicts on
+    stdout. Logs go to stderr. `--quiet` drops the stderr summary.
+  - `--dry-run` prints the file and trait pairs, chunks, and Jev request count.
+    It makes no network calls and needs no API key.
+  - The exit code is 0 when no finding reaches
+    `--fail-on fix|check|unsure|never` (default `fix`), 1 when one does, and 2
+    for an operational failure (config, model, or I/O). Nothing selected prints
+    a stderr note and exits 0.
+- `traits derive [--dry-run]` reads one `derive_trait` input object as JSON on
+  stdin and prints the tagged outcome as JSON, including `GenerationRequired`
+  and `ApprovalRequired`. The CLI has no approval form: ask the user, then send
+  `approved: true` only after Save. `--dry-run` never writes, even with
+  `approved: true`, and adds `dryRun: true` to the outcome. The exit code is 0
+  for any outcome and 2 for a failure.
+- `traits ls [--json]` lists stored trait names and their files.
 
 Surface tool failures; never treat a failed operation as a successful save or
 review. Error diagnostics may contain sensitive information. Never ask for
