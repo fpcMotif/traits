@@ -9,7 +9,7 @@
     }
   ],
   "enableGlobDot": true,
-  "ignorePaths": [".worktrees/**", "LICENSE", "patches/**", "pnpm-lock.yaml", "repos/**"],
+  "ignorePaths": [".worktrees/**", "LICENSE", "patches/**", "bun.lock", "repos/**"],
   "useGitignore": true,
   "version": "0.2"
 }

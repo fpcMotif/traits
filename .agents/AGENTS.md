@@ -6,22 +6,22 @@ All paths below are relative to the repository root.
 
 - `traits/`: Effect-based MCP server and trait SDK.
 - `traits.sh/`: static Vite + React site; deployment is defined by root `alchemy.run.ts`.
-- Use pnpm and Node-compatible tooling; do not introduce Bun APIs.
-- Use `pnpm --filter traits.sh dev` for the local Vite server and `pnpm --filter traits.sh build` to build static assets.
-- Deployment runs from the root with `pnpm exec alchemy deploy alchemy.run.ts --stage <stage>`. Do not deploy, destroy, or provision resources without authorization; credentials/profile and stage must be explicit.
+- Use bun to install packages and run scripts. Keep Node-compatible tooling; do not introduce Bun runtime APIs.
+- Use `bun run --filter traits.sh dev` for the local Vite server and `bun run --filter traits.sh build` to build static assets.
+- Deployment runs from the root with `bunx alchemy deploy alchemy.run.ts --stage <stage>`. Do not deploy, destroy, or provision resources without authorization; credentials/profile and stage must be explicit.
 
 ## Verification
 
-- Run checks from the root: `pnpm exec vp check` for formatting/lint/types; `pnpm build` after TypeScript changes (`--force` after config changes).
-- Run affected suites: `pnpm test:rules` and `pnpm test:traits`. The traits suite may be empty; do not call an empty suite a behavior-test pass. The static site has no test project. `pnpm test` runs checks, builds, and suites; docs-only edits need no build/tests.
-- After dependency changes, run `pnpm install`; after traits exports/publishing changes, run `pnpm --filter traits pack` and verify the tarball's imports/types in a consumer.
-- After frontend changes, run `pnpm --filter traits.sh build`. No deployment is required for this verification.
+- Run checks from the root: `bunx vp check` for formatting/lint/types; `bun run build` after TypeScript changes (`--force` after config changes).
+- Run affected suites: `bun run test:rules` and `bun run test:traits`. The traits suite may be empty; do not call an empty suite a behavior-test pass. The static site has no test project. `bun run test` runs checks, builds, and suites; docs-only edits need no build/tests.
+- After dependency changes, run `bun install`; after traits exports/publishing changes, run `bun pm pack` in `traits/` and verify the tarball's imports/types in a consumer.
+- After frontend changes, run `bun run --filter traits.sh build`. No deployment is required for this verification.
 - Report failures, blocked checks, and empty/skipped suites accurately.
 
 ## CI Credentials
 
 - Whenever deployment configuration changes or new environment variables are introduced, update `bootstrap.ts` to provision the required GitHub Actions secrets/variables, rerun bootstrap, and expose them in the workflow's deployment environment before deploying from CI.
-- Bootstrap with `CLOUDFLARE_ACCOUNT_ID=<account-id> pnpm exec alchemy deploy bootstrap.ts --stage bootstrap`, using an Alchemy profile authorized to create Cloudflare account tokens and manage GitHub Actions secrets/variables.
+- Bootstrap with `CLOUDFLARE_ACCOUNT_ID=<account-id> bunx alchemy deploy bootstrap.ts --stage bootstrap`, using an Alchemy profile authorized to create Cloudflare account tokens and manage GitHub Actions secrets/variables.
 - Deployment steps must expose `CLOUDFLARE_API_TOKEN` from `${{ secrets.CLOUDFLARE_API_TOKEN }}` and `CLOUDFLARE_ACCOUNT_ID` from `${{ vars.CLOUDFLARE_ACCOUNT_ID }}`.
 
 ## Reference Repositories

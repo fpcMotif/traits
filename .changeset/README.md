@@ -1,7 +1,7 @@
 # Changesets
 
-Run `pnpm changeset` to describe a change to the published `traits` package and
-select its version bump. Commit the generated Markdown file with the change.
+Run `bun run changeset` to describe a change to the published `traits` package
+and select its version bump. Commit the generated Markdown file with the change.
 
 On pushes to `main`, the Changesets workflow opens or updates a draft version
 PR. Once the version PR is merged, it publishes the package and creates a GitHub

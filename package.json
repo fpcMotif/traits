@@ -39,7 +39,7 @@
     "format": "vp fmt .",
     "prepare": "effect-tsgo patch --oxlint",
     "build": "tsc -b tsconfig.json",
-    "test": "vp check && pnpm build && pnpm test:rules && pnpm test:traits",
+    "test": "vp check && bun run build && bun run test:rules && bun run test:traits",
     "test:rules": "vp test run --project rules",
     "test:traits": "vp test run --project traits --passWithNoTests",
     "test:traits:integration": "varlock run -- vp test run --config traits.integration.config.ts"
@@ -64,8 +64,12 @@
   "overrides": {
     "@effect/sql-d1": "4.0.0",
     "@effect/sql-sqlite-do": "4.0.0",
-    "vite@*": "catalog:",
-    "vitest@*": "catalog:"
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
+    "vitest": "5.0.1"
   },
-  "packageManager": "pnpm@12.8.1"
+  "packageManager": "bun@1.4.4",
+  "trustedDependencies": [
+    "esbuild",
+    "workerd"
+  ]
 }

@@ -18,21 +18,22 @@ jobs:
       - run: |
           git config user.name "madhatcher"
           git config user.email "144481279+madhatcher@users.noreply.github.com"
-      - uses: pnpm/action-setup@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: canary
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: npm install --global npm@11
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - run: bun install --frozen-lockfile
+      - run: bun run build
       - uses: changesets/action@d0ee272882939fa35f22d979828acb7e61e0bd47 # v2.0.0-next.4
         with:
           github-token: ${{ secrets.MADHATCHER_PAT }}
           push-with-git-cli: true
-          version-script: bash -c "pnpm changeset version && pnpm format"
-          publish-script: pnpm changeset publish
+          version-script: bash -c "bun run changeset version && bun run format"
+          publish-script: bun run changeset publish
           commit-message: version packages
           pr-title: version packages
           pr-draft: create
