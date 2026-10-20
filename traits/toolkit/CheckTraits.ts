@@ -1,6 +1,7 @@
 import { Array, Effect, FileSystem, flow, Path, pipe, Schema as S, String } from "effect"
 import { DecisionModel, Tool, Toolkit } from "effect/ai"
 import { ChildProcessSpawner } from "effect/process"
+import picomatch from "picomatch"
 
 import { getIncludedFiles, GitFileListingError } from "../getIncludedFiles.ts"
 import { Source, SourceLocation } from "../Source.ts"
@@ -103,11 +104,13 @@ export const selectFiles = Effect.fn("CheckTraits.selectFiles")(function* (inclu
     },
     { concurrency: "unbounded" }
   )
+  const isExcluded = picomatch([...context.excludes], { dot: true })
   const resolved = pipe(
     matches,
     Array.flatten,
     Array.map((file) => path.resolve(context.configRoot, file)),
-    Array.dedupe
+    Array.dedupe,
+    Array.filter((file) => !isExcluded(path.relative(context.configRoot, file).split(path.sep).join("/")))
   )
   const files = yield* Effect.filter(
     includedFiles === undefined ? resolved : Array.filter(resolved, (file) => includedFiles.has(file)),

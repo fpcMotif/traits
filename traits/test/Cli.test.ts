@@ -318,22 +318,32 @@ it.effect(
   Effect.fn("test.CliExcludesOnlyConfig")(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const { cwd, run } = yield* project(() => 'export default { excludes: ["generated/**"] }')
-    yield* fs.makeDirectory(path.join(cwd, "generated"))
-    yield* fs.writeFileString(path.join(cwd, "generated/out.ts"), "export const out = 1\n")
+    const { cwd, run } = yield* project(() => 'export default { excludes: ["generated/**", "**/*.md"] }')
+    for (const [file, text] of [
+      ["generated/out.ts", "export const out = 1\n"],
+      [".hidden/x.md", "# Hidden\n"],
+      ["docs/y.md", "# Docs\n"],
+      [".hidden/kept.ts", "export const kept = 1\n"]
+    ] as const) {
+      yield* fs.makeDirectory(path.dirname(path.join(cwd, file)), { recursive: true })
+      yield* fs.writeFileString(path.join(cwd, file), text)
+    }
     const env = Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[0] !== "TYPESAFE_API_KEY" && entry[1] !== undefined
       )
     )
     const plan = yield* run(
-      ["check", "--include", "*.ts", "--include", "generated/*.ts", "--dry-run", "--json"],
+      ["check", "--include", "**/*.ts", "--include", "**/*.md", "--include", ".hidden/*", "--dry-run", "--json"],
       "",
       env
     )
     expect(plan.exitCode).toBe(0)
-    const planned = JSON.parse(plan.stdout).files.map((file: { readonly path: string }) => path.basename(file.path))
-    expect(planned).toEqual(["bad.ts", "clean.ts", "maybe.ts", "traits.ts", "unsure.ts"])
+    const root = yield* fs.realPath(cwd)
+    const planned = JSON.parse(plan.stdout).files.map((file: { readonly path: string }) =>
+      path.relative(root, file.path)
+    )
+    expect(planned).toEqual([".hidden/kept.ts", "bad.ts", "clean.ts", "maybe.ts", "traits.ts", "unsure.ts"])
     const missing = yield* run(["check", "--include", "bad.ts", "--json"], "", env)
     expect(missing.exitCode).toBe(2)
     expect(missing.stdout).toBe("")

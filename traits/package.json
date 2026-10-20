@@ -27,11 +27,13 @@
   },
   "dependencies": {
     "@effect/ai-typesafe": "^4.0.0",
+    "picomatch": "catalog:",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
+    "@types/picomatch": "catalog:",
     "effect": "catalog:"
   },
   "peerDependencies": {
