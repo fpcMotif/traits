@@ -220,6 +220,7 @@ it.effect(
     expect(result.exitCode).toBe(2)
     expect(result.stdout).toBe("")
     expect(result.stderr).toContain("layerDecisionModel")
+    expect(result.stderr.trim().split("\n")).toHaveLength(1)
     expect((yield* run(["derive"], "{}")).exitCode).toBe(2)
     expect((yield* run(["check", "--include", "clean.ts", "--model", "other"])).exitCode).toBe(2)
   }, Effect.provide(NodeServices.layer)),
@@ -342,6 +343,12 @@ it.effect(
     expect(missing.exitCode).toBe(2)
     expect(missing.stdout).toBe("")
     for (const text of ["TYPESAFE_API_KEY", "typesafe-api-key", "Varlock"]) expect(missing.stderr).toContain(text)
+    expect(missing.stderr.trim().split("\n")).toHaveLength(1)
+    expect(missing.stderr).not.toMatch(/^\s+at /m)
+    const verbose = yield* run(["check", "--include", "bad.ts", "--json", "--verbose"], "", env())
+    expect(verbose.exitCode).toBe(2)
+    expect(verbose.stderr).toContain("TYPESAFE_API_KEY")
+    expect(verbose.stderr).toMatch(/^\s+at /m)
     expect(yield* fs.exists(marker)).toBe(false)
     const keyed = yield* run(
       ["check", "--include", "bad.ts", "--json"],
@@ -351,6 +358,44 @@ it.effect(
     expect(keyed.exitCode).toBe(2)
     expect(keyed.stderr).not.toContain("test-key-value")
     expect(yield* fs.exists(marker)).toBe(true)
+  }, Effect.provide(NodeServices.layer)),
+  { timeout: 60000 }
+)
+
+it.effect(
+  "check skips a file × trait pair over the request budget and keeps checking the rest",
+  Effect.fn("test.CliTooLarge")(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { cwd, run } = yield* project(() => fakeConfig)
+    const line = `export const value = "${"x".repeat(120)}"`
+    yield* fs.writeFileString(path.join(cwd, "big.ts"), Array.from({ length: 200 }, () => line).join("\n"))
+    const plan = yield* run(["check", "--include", "big.ts", "--include", "bad.ts", "--dry-run", "--json"])
+    expect(plan.exitCode).toBe(0)
+    const planned = JSON.parse(plan.stdout)
+    expect(planned.files).toMatchObject([
+      { path: expect.stringContaining("bad.ts"), requests: 1, skipped: [] },
+      {
+        path: expect.stringContaining("big.ts"),
+        requests: 0,
+        skipped: [{ trait: "indentation", startLine: 1, bytes: expect.any(Number), maxBytes: 24000 }]
+      }
+    ])
+    expect(planned.files[1].skipped[0].bytes).toBeGreaterThan(24000)
+    expect(planned.summary).toMatchObject({ requests: 1, skipped: 1 })
+    const checked = yield* run(["check", "--include", "big.ts", "--include", "bad.ts", "--json"])
+    expect(checked.exitCode).toBe(1)
+    const report = JSON.parse(checked.stdout)
+    expect(report.findings).toHaveLength(1)
+    expect(report.skipped).toMatchObject([
+      { path: expect.stringContaining("big.ts"), trait: "indentation", startLine: 1, maxBytes: 24000 }
+    ])
+    expect(report.summary).toMatchObject({ skipped: 1 })
+    const human = yield* run(["check", "--include", "big.ts"])
+    expect(human.exitCode).toBe(0)
+    expect(human.stdout).toMatch(/^skip\s+big\.ts:1 indentation too-large \d+\/24000 bytes$/m)
+    expect((yield* run(["check", "--include", "big.ts", "--fail-on", "unsure"])).exitCode).toBe(1)
+    expect((yield* run(["check", "--include", "big.ts", "--fail-on", "check"])).exitCode).toBe(0)
   }, Effect.provide(NodeServices.layer)),
   { timeout: 60000 }
 )

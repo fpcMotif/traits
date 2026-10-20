@@ -1,5 +1,6 @@
 import { Array, Effect, Record, Schema as S, String } from "effect"
 import { Decision, DecisionModel } from "effect/ai"
+import { dual } from "effect/Function"
 
 import { Assessment } from "./Assessment.ts"
 import { Source, SourceLocation } from "./Source.ts"
@@ -59,26 +60,34 @@ const question = (trait: Trait) =>
 
 type BatchEntry = { readonly trait: Trait; readonly question: ReturnType<typeof question> }
 
-export const planBatches = Effect.fn("TraitEvaluation.planBatches")(function* (
-  traits: ReadonlyArray<Trait>,
-  source: Source,
-  circumstances?: string
-) {
+type BatchPlan = {
+  readonly batches: Array<Array<BatchEntry>>
+  readonly skipped: Array<TraitAssessmentTooLargeError>
+}
+
+export const planBatches: {
+  (source: Source, circumstances: string | undefined): (traits: ReadonlyArray<Trait>) => BatchPlan
+  (traits: ReadonlyArray<Trait>, source: Source, circumstances: string | undefined): BatchPlan
+} = dual(3, (traits: ReadonlyArray<Trait>, source: Source, circumstances: string | undefined): BatchPlan => {
   const input = { source, ...(circumstances === undefined ? {} : { circumstances }) }
   const inputBytes = new TextEncoder().encode(JSON.stringify(input)).length
   const batches: Array<Array<BatchEntry>> = []
+  const skipped: Array<TraitAssessmentTooLargeError> = []
   let batch: Array<BatchEntry> = []
   let bytes = inputBytes
   for (const trait of traits) {
     const entry = { trait, question: question(trait) }
     const questionBytes = new TextEncoder().encode(JSON.stringify({ [trait.name]: entry.question })).length
     if (inputBytes + questionBytes > 24_000) {
-      return yield* TraitAssessmentTooLargeError.make({
-        traitName: trait.name,
-        bytes: inputBytes + questionBytes,
-        maxBytes: 24_000,
-        location: source.location
-      })
+      skipped.push(
+        TraitAssessmentTooLargeError.make({
+          traitName: trait.name,
+          bytes: inputBytes + questionBytes,
+          maxBytes: 24_000,
+          location: source.location
+        })
+      )
+      continue
     }
     if (batch.length > 0 && (batch.length === 16 || bytes + questionBytes > 24_000)) {
       batches.push(batch)
@@ -89,8 +98,10 @@ export const planBatches = Effect.fn("TraitEvaluation.planBatches")(function* (
     bytes += questionBytes
   }
   if (batch.length > 0) batches.push(batch)
-  return batches
+  return { batches, skipped }
 })
+
+export type Batches = BatchPlan["batches"]
 
 export const evaluateAll = Effect.fn("TraitEvaluation.evaluateAll")(function* (
   traits: ReadonlyArray<Trait>,
@@ -98,9 +109,19 @@ export const evaluateAll = Effect.fn("TraitEvaluation.evaluateAll")(function* (
   circumstances?: string
 ) {
   if (traits.length === 0) return []
+  const plan = planBatches(traits, source, circumstances)
+  const [tooLarge] = plan.skipped
+  if (tooLarge !== undefined) return yield* tooLarge
+  return yield* evaluateBatches(plan.batches, source, circumstances)
+})
+
+export const evaluateBatches = Effect.fn("TraitEvaluation.evaluateBatches")(function* (
+  batches: Batches,
+  source: Source,
+  circumstances?: string
+) {
   const context = yield* TraitsContext
   const input = { source, ...(circumstances === undefined ? {} : { circumstances }) }
-  const batches = yield* planBatches(traits, source, circumstances)
   return yield* Effect.forEach(
     batches,
     Effect.fn("TraitEvaluation.batch")(function* (entries) {

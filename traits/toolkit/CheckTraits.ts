@@ -143,10 +143,15 @@ export const planText = Effect.fn("CheckTraits.planText")(function* (
       location: SourceLocation.cases.File.make({ path: file, startLine: index * 200 + 1 })
     })
   )
-  const batches = yield* Effect.forEach(sources, (source) =>
-    activeTraits.length === 0 ? Effect.succeed([]) : Evaluation.planBatches(activeTraits, source, circumstances)
-  )
-  return { path: file, traits: activeTraits, sources, requests: Array.reduce(batches, 0, (n, b) => n + b.length) }
+  const planned = Array.map(sources, (source) => Evaluation.planBatches(activeTraits, source, circumstances))
+  return {
+    path: file,
+    traits: activeTraits,
+    sources,
+    batches: Array.map(planned, (plan) => plan.batches),
+    skipped: Array.flatMap(planned, (plan) => plan.skipped),
+    requests: Array.reduce(planned, 0, (n, plan) => n + plan.batches.length)
+  }
 })
 
 export const planFile = Effect.fn("CheckTraits.planFile")(function* (
@@ -163,8 +168,8 @@ export const evaluatePlan = Effect.fn("CheckTraits.evaluatePlan")(function* (
   plan: FilePlan,
   circumstances: string | undefined
 ) {
-  const evaluateSource = (source: (typeof plan.sources)[number]) =>
-    Evaluation.evaluateAll(plan.traits, source, circumstances)
+  const evaluateSource = (source: (typeof plan.sources)[number], index: number) =>
+    Evaluation.evaluateBatches(plan.batches[index] ?? [], source, circumstances)
   const evaluations = yield* Effect.forEach(plan.sources, evaluateSource, { concurrency: "unbounded" })
   return Array.flatten(evaluations)
 })
@@ -172,12 +177,12 @@ export const evaluatePlan = Effect.fn("CheckTraits.evaluatePlan")(function* (
 export const check = Effect.fn("CheckTraits.check")(function* (params: typeof CheckTraits.parametersSchema.Type) {
   const traits = yield* selectTraits(params.traitNames)
   const paths = yield* selectFiles(params.include)
-  const evaluations = yield* Effect.forEach(
-    paths,
-    (file) =>
-      Effect.flatMap(planFile(file, traits, params.circumstances), (plan) => evaluatePlan(plan, params.circumstances)),
-    { concurrency: "unbounded" }
-  ).pipe(Effect.map(Array.flatten))
+  const plan = (file: string) => planFile(file, traits, params.circumstances)
+  const plans = yield* Effect.forEach(paths, plan, { concurrency: "unbounded" })
+  const [tooLarge] = Array.flatMap(plans, (filePlan) => filePlan.skipped)
+  if (tooLarge !== undefined) return yield* tooLarge
+  const evaluate = (filePlan: FilePlan) => evaluatePlan(filePlan, params.circumstances)
+  const evaluations = Array.flatten(yield* Effect.forEach(plans, evaluate, { concurrency: "unbounded" }))
   return Array.filter(evaluations, Evaluation.requiresReview)
 })
 

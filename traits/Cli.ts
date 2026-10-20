@@ -12,7 +12,8 @@ import {
   Schema as S,
   Stdio,
   Stream,
-  String
+  String,
+  Struct
 } from "effect"
 import { Flag } from "effect/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
@@ -48,16 +49,34 @@ export const reportExit = (cause: Cause.Cause<unknown>) => {
   return error.code === ExitCode.failure ? Effect.void : Console.error(error.reason)
 }
 
-const reportFailures = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+const failureLine = (cause: Cause.Cause<unknown>) => {
+  const error = Cause.squash(cause)
+  const message = error instanceof Error ? error.message : globalThis.String(error)
+  const line = pipe(
+    String.split(message, "\n"),
+    Array.map(String.trim),
+    Array.filter(String.isNonEmpty),
+    Array.join(" ")
+  )
+  return `traits: ${line || "failed"} (run with --verbose for details)`
+}
+
+const reportFailures = <A, E, R>(effect: Effect.Effect<A, E, R>, options: { readonly verbose: boolean }) =>
   effect.pipe(
     Effect.catchCauseIf(
       (cause) => !Cause.hasInterruptsOnly(cause) && !isCliExit(cause),
       (cause) =>
-        Console.error(Cause.pretty(cause)).pipe(
+        Effect.annotateCurrentSpan({ "error.detail": Cause.pretty(cause) }).pipe(
+          Effect.andThen(Console.error(options.verbose ? Cause.pretty(cause) : failureLine(cause))),
           Effect.andThen(CliExit.make({ code: ExitCode.failure, reason: "traits failed" }))
         )
     )
   )
+
+const verbose = Flag.Boolean("verbose").pipe(
+  Flag.withDefault(false),
+  Flag.withDescription("Print the full error cause and stack trace on an operational failure.")
+)
 
 const failWith = (reason: string) => CliExit.make({ code: ExitCode.failure, reason })
 
@@ -138,21 +157,55 @@ const CheckFinding = S.Struct({
   assessment: S.Struct({ ...Assessment.fields, verdict: Verdict.Verdict })
 })
 
+const SkippedPair = S.Struct({
+  path: S.String,
+  trait: Trait.TraitId,
+  reason: S.Literal("too-large"),
+  startLine: S.Int,
+  bytes: S.Int,
+  maxBytes: S.Int
+})
+
+const skippedPairs = (plan: CheckTraits.FilePlan) =>
+  Array.map(plan.skipped, (skipped) =>
+    SkippedPair.make({
+      path: plan.path,
+      trait: skipped.traitName,
+      reason: "too-large",
+      startLine: skipped.location?._tag === "File" ? skipped.location.startLine : 1,
+      bytes: skipped.bytes,
+      maxBytes: skipped.maxBytes
+    })
+  )
+
 const CheckReport = S.Struct({
   findings: S.Array(CheckFinding),
+  skipped: S.Array(SkippedPair),
   summary: S.Struct({
     files: S.Int,
     traits: S.Int,
     requests: S.Int,
+    skipped: S.Int,
     verdicts: S.Record(Verdict.Verdict, S.Int)
   })
 })
 
 const PlanReport = S.Struct({
   dryRun: S.Literal(true),
-  files: S.Array(S.Struct({ path: S.String, traits: S.Array(Trait.TraitId), chunks: S.Int, requests: S.Int })),
-  summary: S.Struct({ files: S.Int, traits: S.Int, pairs: S.Int, chunks: S.Int, requests: S.Int })
+  files: S.Array(
+    S.Struct({
+      path: S.String,
+      traits: S.Array(Trait.TraitId),
+      chunks: S.Int,
+      requests: S.Int,
+      skipped: S.Array(SkippedPair.mapFields(Struct.omit(["path"])))
+    })
+  ),
+  summary: S.Struct({ files: S.Int, traits: S.Int, pairs: S.Int, chunks: S.Int, requests: S.Int, skipped: S.Int })
 })
+
+const skipLine = (path: Path.Path, skipped: typeof SkippedPair.Type) =>
+  `skip   ${path.relative(path.resolve(), skipped.path)}:${skipped.startLine} ${skipped.trait} ${skipped.reason} ${skipped.bytes}/${skipped.maxBytes} bytes`
 
 const threshold = (name: string, value: number) =>
   Flag.Finite(name).pipe(
@@ -217,7 +270,8 @@ export const checkFlags = {
   kind: Flag.Literals("kind", Kind.literals).pipe(
     Flag.withDefault("write" as const),
     Flag.withDescription("With --stdin: edit for a snippet, or write (default) for a whole file.")
-  )
+  ),
+  verbose
 }
 
 export interface CheckOptions {
@@ -237,6 +291,7 @@ export interface CheckOptions {
   readonly stdin: boolean
   readonly stdinFilepath: Option.Option<string>
   readonly kind: Kind
+  readonly verbose: boolean
 }
 
 const stdinSelection = Effect.fn("Cli.stdinSelection")(function* (
@@ -292,20 +347,23 @@ const noteEmpty = (target: string, plans: ReadonlyArray<CheckTraits.FilePlan>, t
 const runPlan = Effect.fn("Cli.plan")(function* (options: CheckOptions) {
   const { target, traits, plans } = yield* selection(options)
   const path = yield* Path.Path
+  const skipped = Array.flatMap(plans, skippedPairs)
   const report = PlanReport.make({
     dryRun: true,
     files: Array.map(plans, (plan) => ({
       path: plan.path,
       traits: Array.map(plan.traits, (trait) => trait.name),
       chunks: plan.sources.length,
-      requests: plan.requests
+      requests: plan.requests,
+      skipped: Array.map(skippedPairs(plan), Struct.omit(["path"]))
     })),
     summary: {
       files: plans.length,
       traits: traits.length,
       pairs: Array.reduce(plans, 0, (n, plan) => n + plan.traits.length),
       chunks: Array.reduce(plans, 0, (n, plan) => n + plan.sources.length),
-      requests: Array.reduce(plans, 0, (n, plan) => n + plan.requests)
+      requests: Array.reduce(plans, 0, (n, plan) => n + plan.requests),
+      skipped: skipped.length
     }
   })
   yield* noteEmpty(target, plans, traits.length)
@@ -315,10 +373,11 @@ const runPlan = Effect.fn("Cli.plan")(function* (options: CheckOptions) {
       `${path.relative(path.resolve(), file.path)}  chunks ${file.chunks}  requests ${file.requests}  traits ${file.traits.length}`
     )
   }
+  for (const pair of skipped) yield* Console.log(skipLine(path, pair))
   if (!options.quiet) {
     const { summary } = report
     yield* Console.error(
-      `dry run: ${summary.files} files, ${summary.traits} traits, ${summary.pairs} file-trait pairs, ${summary.chunks} chunks, ${summary.requests} Jev requests.`
+      `dry run: ${summary.files} files, ${summary.traits} traits, ${summary.pairs} file-trait pairs, ${summary.chunks} chunks, ${summary.requests} Jev requests, ${summary.skipped} skipped as too large.`
     )
   }
 })
@@ -337,12 +396,15 @@ const runEvaluation = Effect.fn("Cli.evaluate")(function* (options: CheckOptions
     }
   }))
   const findings = Array.filter(judged, (finding) => finding.assessment.verdict !== "pass")
+  const skipped = Array.flatMap(plans, skippedPairs)
   const report = CheckReport.make({
     findings,
+    skipped,
     summary: {
       files: plans.length,
       traits: traits.length,
       requests: Array.reduce(plans, 0, (n, plan) => n + plan.requests),
+      skipped: skipped.length,
       verdicts: {
         fix: Array.filter(judged, (j) => j.assessment.verdict === "fix").length,
         check: Array.filter(judged, (j) => j.assessment.verdict === "check").length,
@@ -363,14 +425,18 @@ const runEvaluation = Effect.fn("Cli.evaluate")(function* (options: CheckOptions
         `${finding.assessment.verdict.padEnd(6)} ${location} ${finding.trait.name} p(violation) ${finding.assessment.probabilities.violation.toFixed(2)}`
       )
     }
+    for (const pair of skipped) yield* Console.log(skipLine(path, pair))
   }
   if (!options.quiet) {
     const { verdicts } = report.summary
     yield* Console.error(
-      `${judged.length} judgments in ${plans.length} files against ${traits.length} traits: ${verdicts.fix} fix, ${verdicts.check} check, ${verdicts.unsure} unsure, ${verdicts.pass} pass.`
+      `${judged.length} judgments in ${plans.length} files against ${traits.length} traits: ${verdicts.fix} fix, ${verdicts.check} check, ${verdicts.unsure} unsure, ${verdicts.pass} pass, ${skipped.length} skipped as too large.`
     )
   }
-  const failing = Array.filter(findings, (finding) => Verdict.fails(finding.assessment.verdict, options.failOn))
+  const failing = [
+    ...Array.filter(findings, (finding) => Verdict.fails(finding.assessment.verdict, options.failOn)),
+    ...(Verdict.fails("unsure", options.failOn) ? skipped : [])
+  ]
   if (failing.length > 0) {
     return yield* CliExit.make({
       code: ExitCode.failed,
@@ -391,10 +457,14 @@ export const deriveFlags = {
   dryRun: Flag.Boolean("dry-run").pipe(
     Flag.withDefault(false),
     Flag.withDescription("Run validation, Jev checks, and the generation handshake, but never write to the store.")
-  )
+  ),
+  verbose
 }
 
-export const runDerive = Effect.fn("Cli.derive")(function* (options: { readonly dryRun: boolean }) {
+export const runDerive = Effect.fn("Cli.derive")(function* (options: {
+  readonly dryRun: boolean
+  readonly verbose: boolean
+}) {
   const stdio = yield* Stdio.Stdio
   const input = yield* pipe(stdio.stdin, Stream.decodeText(), Stream.mkString)
   const params = yield* S.decodeEffect(S.fromJsonString(DeriveTrait.parametersSchema))(input)
@@ -404,13 +474,14 @@ export const runDerive = Effect.fn("Cli.derive")(function* (options: { readonly 
 }, reportFailures)
 
 export const lsFlags = {
-  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the traits as JSON."))
+  json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the traits as JSON.")),
+  verbose
 }
 
 const StoredTraits = S.Array(S.Struct({ name: Trait.TraitId, path: S.String }))
 
 export const runLs = Effect.fn("Cli.ls")(
-  function* (options: { readonly json: boolean }) {
+  function* (options: { readonly json: boolean; readonly verbose: boolean }) {
     const store = yield* TraitStore.TraitStore
     const path = yield* Path.Path
     const traits = yield* store.ls
@@ -421,5 +492,5 @@ export const runLs = Effect.fn("Cli.ls")(
     if (options.json) return yield* Console.log(yield* S.encodeEffect(S.fromJsonString(StoredTraits))(entries))
     for (const entry of entries) yield* Console.log(`${entry.name}  ${path.relative(path.resolve(), entry.path)}`)
   },
-  (effect) => effect.pipe(Effect.provide(layerStore), reportFailures)
+  (effect, options) => reportFailures(effect.pipe(Effect.provide(layerStore)), options)
 )
