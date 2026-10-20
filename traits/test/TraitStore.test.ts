@@ -166,3 +166,74 @@ it.effect(
     }).pipe(Effect.provide(TraitStore.layerFileSystem(dir)))
   }, Effect.provide(NodeServices.layer))
 )
+
+it.effect(
+  "reads grouped traits by group/name with titles, paths, and when, and never writes inside a group",
+  Effect.fn("test.TraitStore.grouped")(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "traits-grouped-" })
+    const flat = Trait.Trait.make({
+      name: Trait.TraitName.make("indentation"),
+      subject: "Code indentation.",
+      requirement: "Use tabs for indentation.",
+      purpose: "Keep indentation consistent."
+    })
+    const files = {
+      "indentation.md": Trait.serialize(flat),
+      "style/tabs.md": "\n# Prefer tabs\n\nIndent code with tabs.\n",
+      "style/scoped_hooks.md":
+        "---\npaths:\n  - src/**/*.tsx\nwhen:\n  - usestate\n  - '(unclosed'\n---\n## Hooks stay at the top\n\nCall hooks before any early return.\n",
+      "style/nested/deep.md": "# Not a trait\n\nNested folders are not traits.\n",
+      "style/notes.txt": "Not Markdown.\n"
+    }
+    for (const [file, text] of Object.entries(files)) {
+      yield* fs.makeDirectory(path.dirname(path.join(dir, file)), { recursive: true })
+      yield* fs.writeFileString(path.join(dir, file), text)
+    }
+    yield* Effect.gen(function* () {
+      const store = yield* TraitStore.TraitStore
+      const listed = yield* store.ls
+      expect(listed.map((trait) => trait.name)).toEqual(["indentation", "style/scoped_hooks", "style/tabs"])
+      const tabs = yield* store.get(Trait.GroupedTraitName.make("style/tabs"))
+      expect(tabs).toEqual({
+        name: "style/tabs",
+        subject: "the code in the change",
+        requirement: "# Prefer tabs\n\nIndent code with tabs.",
+        purpose: "Prefer tabs"
+      })
+      const hooks = listed[1]!
+      expect(hooks).toMatchObject({
+        name: "style/scoped_hooks",
+        purpose: "Hooks stay at the top",
+        paths: ["src/**/*.tsx"],
+        when: ["usestate"]
+      })
+      expect(Trait.appliesTo(hooks, { path: "src/app/View.tsx", text: "const [a] = useState(0)" })).toBe(true)
+      expect(Trait.appliesTo(hooks, { path: "src/app/View.tsx", text: "const a = 0" })).toBe(false)
+      expect(Trait.appliesTo(hooks, { path: "lib/View.tsx", text: "const [a] = useState(0)" })).toBe(false)
+      expect(Trait.appliesTo(tabs, { path: "any/file.md", text: "" })).toBe(true)
+      expect(Trait.appliesTo(flat, { path: "any/file.md", text: "" })).toBe(true)
+      const replacement = Trait.Trait.make({ ...tabs, requirement: "Indent with spaces." })
+      const failures = [
+        yield* Effect.flip(store.add(replacement)),
+        yield* Effect.flip(store.update(replacement)),
+        yield* Effect.flip(store.rm([tabs.name]))
+      ]
+      for (const failure of failures)
+        expect(failure).toMatchObject({
+          _tag: "GroupedTraitReadOnlyError",
+          name: "style/tabs",
+          message: expect.stringContaining("read-only")
+        })
+      for (const [file, text] of Object.entries(files))
+        expect(yield* fs.readFileString(path.join(dir, file))).toBe(text)
+      expect((yield* fs.readDirectory(path.join(dir, "style"))).sort()).toEqual([
+        "nested",
+        "notes.txt",
+        "scoped_hooks.md",
+        "tabs.md"
+      ])
+    }).pipe(Effect.provide(TraitStore.layerFileSystem(dir)))
+  }, Effect.provide(NodeServices.layer))
+)

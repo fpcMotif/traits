@@ -16,6 +16,7 @@ export const TraitDerivation = S.Union([
   S.TaggedStruct("Updated", { trait: Trait.Trait, instructions: S.String }),
   S.TaggedStruct("Resolved", { traits: S.Array(Trait.Trait), instructions: S.String }),
   S.TaggedStruct("GenerationRequired", { requests: S.Array(Generation.GenerationRequest), instructions: S.String }),
+  S.TaggedStruct("GroupedTraitReadOnly", { traits: S.Array(Trait.Trait), instructions: S.String }),
   Approval.Approval.cases.ApprovalRequired,
   Approval.Approval.cases.RevisionRequired,
   Approval.Approval.cases.Declined
@@ -47,16 +48,36 @@ const reviewInstructions = (traits: ReadonlyArray<Trait.Trait>) =>
 | Do not stop at a findings summary. If blocked, explicitly report the blocker and state that the required post-save trait checks remain incomplete. Saving a trait does not itself check or update project files.
 `)
 
+const groupedReadOnly = (traits: ReadonlyArray<Trait.Trait>) =>
+  TraitDerivation.cases.GroupedTraitReadOnly.make({
+    traits,
+    instructions: String.stripMargin(`
+    | Stopped without writing. Grouped traits are read-only here: ${pipe(
+      traits,
+      Array.map((trait) => trait.name),
+      Array.join(", ")
+    )}.
+    | This derivation would update or remove them. Change them in their group folder's own repository, or revise the proposal into a flat trait that does not overlap them.
+    `)
+  })
+
 export const derive = Effect.fn("TraitDerivation.derive")(function* (params: DeriveParams) {
   const store = yield* TraitStore
-  const traits = yield* store.ls
   const { proposedTrait } = params
+  if (Trait.isGrouped(proposedTrait.name)) return groupedReadOnly([proposedTrait])
+  const traits = yield* store.ls
   const completeProposal = Trait.serialize(proposedTrait)
   const results = yield* Effect.forEach(traits, (trait) => check(trait, completeProposal), { concurrency: "unbounded" })
   const failures = Array.filter(results, TraitConflict.guards.Fail)
   if (Array.some(failures, (failure) => failure.reason === "inconclusive")) {
     return TraitDerivation.cases.Inconclusive.make({ findings: failures })
   }
+  const groupedFailures = pipe(
+    failures,
+    Array.map((failure) => failure.existing),
+    Array.filter((trait) => Trait.isGrouped(trait.name))
+  )
+  if (groupedFailures.length > 0) return groupedReadOnly(groupedFailures)
   if (failures.length > 0) {
     return yield* reconcile({
       traits: Array.map(failures, (failure) => failure.existing),
@@ -87,6 +108,7 @@ export const derive = Effect.fn("TraitDerivation.derive")(function* (params: Der
   }
   if (clarifications.length === 1) {
     const target = Array.getUnsafe(clarifications, 0).trait
+    if (Trait.isGrouped(target.name)) return groupedReadOnly([target])
     const trait = Trait.Trait.make({
       ...proposedTrait,
       name: target.name
@@ -208,11 +230,11 @@ const reconcile = Effect.fn("TraitDerivation.reconcile")(function* (options: {
         `),
     input,
     schema: S.Struct({
-      traits: S.Array(Trait.Trait).check(S.isMinLength(1))
+      traits: S.Array(Trait.FlatTrait).check(S.isMinLength(1))
     }),
     generated: options.generated
   })
-  const replacementNames = new Set<Trait.TraitName>()
+  const replacementNames = new Set<Trait.TraitId>()
   for (const draft of response.traits) {
     if (replacementNames.has(draft.name) || Array.contains(reservedNames, draft.name)) {
       return yield* TraitAlreadyExistsError.make({ name: draft.name })

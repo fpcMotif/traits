@@ -180,7 +180,7 @@ it.effect(
 )
 
 it.effect(
-  "check --dry-run plans without building the decision model or calling it",
+  "check --dry-run plans without building the decision model or calling it, and .env files are never read",
   Effect.fn("test.CliDryRun")(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
@@ -197,6 +197,7 @@ it.effect(
       summary: { files: 2, traits: 1, pairs: 2, chunks: 2, requests: 2 }
     })
     expect(yield* fs.exists(markerPath(cwd))).toBe(false)
+    yield* fs.writeFileString(path.join(cwd, ".env"), "TRAITS_TEST_MISSING_KEY=from-dotenv\n")
     const real = yield* run(["check", "--include", "bad.ts", "--json"])
     expect(real.exitCode).toBe(2)
     expect(real.stderr).toContain("TRAITS_TEST_MISSING_KEY")
@@ -246,6 +247,58 @@ it.effect(
     expect(JSON.parse(dryRun.stdout)).toMatchObject({ _tag: "Resolved", dryRun: true, traits: [proposedTrait] })
     expect(yield* fs.readFileString(path.join(cwd, ".agents/traits/indentation.md"))).toBe(storedTrait)
     expect((yield* run(["derive"], "not json")).exitCode).toBe(2)
+  }, Effect.provide(NodeServices.layer)),
+  { timeout: 60000 }
+)
+
+it.effect(
+  "check --stdin applies grouped paths and when to the given repo-relative path",
+  Effect.fn("test.CliStdin")(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { cwd, run } = yield* project(() => fakeConfig)
+    yield* fs.makeDirectory(path.join(cwd, ".agents/traits/style"))
+    yield* fs.writeFileString(path.join(cwd, ".agents/traits/style/tabs.md"), "# Prefer tabs\n\nIndent with tabs.\n")
+    yield* fs.writeFileString(
+      path.join(cwd, ".agents/traits/style/hooks.md"),
+      "---\npaths:\n  - src/**/*.tsx\nwhen:\n  - usestate\n---\n# Hooks first\n\nCall hooks first.\n"
+    )
+    const stdin = (filepath: string, text: string, ...extra: ReadonlyArray<string>) =>
+      run(["check", "--stdin", "--stdin-filepath", filepath, ...extra], text)
+    const plannedTraits = (filepath: string, text: string, ...extra: ReadonlyArray<string>) =>
+      stdin(filepath, text, "--kind", "edit", "--dry-run", "--json", ...extra).pipe(
+        Effect.map((result) => JSON.parse(result.stdout).files[0].traits)
+      )
+    expect(yield* plannedTraits("src/View.tsx", "const [a] = useState(0)")).toEqual([
+      "indentation",
+      "style/hooks",
+      "style/tabs"
+    ])
+    expect(yield* plannedTraits("src/View.tsx", "const a = 0")).toEqual(["indentation", "style/tabs"])
+    expect(yield* plannedTraits("lib/View.tsx", "const [a] = useState(0)")).toEqual(["indentation", "style/tabs"])
+    expect(yield* plannedTraits("src/View.tsx", "useState", "--trait", "style/hooks")).toEqual(["style/hooks"])
+    const written = yield* stdin("src/View.tsx", "// VIOLATION\nconst [a] = useState(0)\n", "--kind", "write", "--json")
+    expect(written.exitCode).toBe(1)
+    const findings = JSON.parse(written.stdout).findings
+    expect(findings.map((finding: { readonly trait: { readonly name: string } }) => finding.trait.name)).toEqual([
+      "indentation",
+      "style/hooks",
+      "style/tabs"
+    ])
+    expect(findings[0]).toMatchObject({
+      source: {
+        location: { _tag: "File", path: expect.stringMatching(/traits-cli-[^/]+\/src\/View\.tsx$/), startLine: 1 }
+      }
+    })
+    expect(yield* fs.exists(path.join(cwd, "src/View.tsx"))).toBe(false)
+    expect((yield* run(["check", "--stdin"], "x")).exitCode).toBe(2)
+    expect((yield* stdin("src/View.tsx", "x", "--include", "clean.ts")).exitCode).toBe(2)
+    const listed = yield* run(["ls", "--json"])
+    expect(JSON.parse(listed.stdout).map((entry: { readonly name: string }) => entry.name)).toEqual([
+      "indentation",
+      "style/hooks",
+      "style/tabs"
+    ])
   }, Effect.provide(NodeServices.layer)),
   { timeout: 60000 }
 )

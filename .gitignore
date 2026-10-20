@@ -7,6 +7,7 @@ coverage/
 .wrangler/
 .env*
 !.env.example
+!.env.schema
 test-results/
 playwright-report/
 .vitest/

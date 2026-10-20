@@ -5,18 +5,13 @@ import { expect, it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, String } from "effect"
 import { FetchHttpClient } from "effect/http"
 
-import * as TraitsConfigProvider from "../_util/TraitsConfigProvider.ts"
 import { Source } from "../Source.ts"
 import * as Trait from "../Trait.ts"
 import * as TraitConflict from "../TraitConflict.ts"
 import * as TraitEvaluation from "../TraitEvaluation.ts"
 import * as TraitsConfig from "../TraitsConfig.ts"
 
-const layer = TraitsConfig.layer.pipe(
-  Layer.provideMerge(FetchHttpClient.layer),
-  Layer.provide(TraitsConfigProvider.layer),
-  Layer.provideMerge(NodeServices.layer)
-)
+const layer = TraitsConfig.layer.pipe(Layer.provideMerge(FetchHttpClient.layer), Layer.provideMerge(NodeServices.layer))
 
 const rawMultilineExample = String.stripMargin(`
 |type TraitField = { readonly value: string }

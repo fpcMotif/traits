@@ -38,45 +38,28 @@ and ask before any compatibility migration.
 ### 2. Ask about providers and models
 
 Before installing provider packages or writing `traits.ts`, ask the user which
-providers and models to use for decisions and language generation. Offer
-`@effect/ai-openrouter` as the default: one package and one API key supply both
-services. Install only the selected provider packages, using the project's
-dependency conventions and compatible versions.
+decision provider and model to use. Offer `@effect/ai-typesafe` as the default.
+It needs one key, `TYPESAFE_API_KEY`. The calling agent generates reconciliation
+JSON, so no language model is needed. Install only the selected provider
+packages, using the project's dependency conventions and compatible versions.
 
 ```ts
-import {
-  OpenRouterClient,
-  OpenRouterDecisionModel,
-  OpenRouterLanguageModel
-} from "@effect/ai-openrouter"
-import { Config, Layer } from "effect"
+import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
+import { Layer } from "effect"
 import type { TraitsConfig } from "traits"
 
-const layerClient = OpenRouterClient.layerConfig({
-  apiKey: Config.Redacted("OPENROUTER_API_KEY")
-})
-
 export default {
-  layerDecisionModel: OpenRouterDecisionModel.layer({
-    model: "~typesafe/jev-latest"
-  }).pipe(Layer.provide(layerClient)),
-  layerLanguageModel: OpenRouterLanguageModel.layer({
-    model: "openai/gpt-6.1-sol",
-    config: { strictJsonSchema: true, reasoning: { effort: "low" } }
-  }).pipe(Layer.provide(layerClient))
+  layerDecisionModel: ({ model }: { readonly model: string }) =>
+    TypeSafeDecisionModel.layer({ model }).pipe(
+      Layer.provide(TypeSafeClient.layerConfig())
+    )
 } satisfies TraitsConfig
 ```
 
-Decision models run on OpenRouter's Decisions API, not chat completions, so
-choose them from
-`https://openrouter.ai/api/v1/models?output_modalities=decisions`. Choose
-language models that support structured output.
-
-**Advanced: separate providers.** Users who already hold provider keys or want
-direct provider access can use `@effect/ai-typesafe` for decisions and
-`@effect/ai-openai` for language generation, or other Effect providers. Consult
-current Effect provider documentation and check that each choice supplies the
-required `DecisionModel` or `LanguageModel` service.
+**Advanced: other providers.** Any Effect provider that supplies the
+`DecisionModel` service works, for example OpenRouter's Decisions API. An
+optional `layerLanguageModel` makes Traits generate reconciliation JSON itself.
+Choose a language model that supports structured output.
 
 ### 3. Configure the current checkout
 
@@ -94,16 +77,20 @@ Git filter unless the user requests otherwise.
 
 ### 4. Keep credentials private
 
-Explain which credentials the selected providers require. The OpenRouter default
-uses `OPENROUTER_API_KEY`; the separate TypeSafe and OpenAI providers use
-`TYPESAFE_API_KEY` and `OPENAI_API_KEY`. Use the MCP process environment or a
-Git-ignored `.env` at the checkout root. Check that the file is ignored before
-writing secrets; never request secret values in chat, print them, or commit
-them.
+Explain which credentials the selected providers require. The TypeSafe default
+uses `TYPESAFE_API_KEY`. Traits reads the process environment only and never
+reads `.env` files. Keep the key in the macOS Keychain and resolve it with
+Varlock. Declare it in a committed `.env.schema`:
 
-Process environment values take precedence, followed by the worktree's `.env`,
-then the main checkout's `.env`. Reconnect the server after changing
-credentials.
+```sh
+# @sensitive
+TYPESAFE_API_KEY=keychain("typesafe-api-key")
+```
+
+Then start Traits with `varlock run -- traits ...`, both in the MCP command and
+in hooks. The first Keychain read asks the user to approve it. Never request
+secret values in chat, print them, or commit them. Reconnect the server after
+changing credentials.
 
 ### 5. Install the skill where the current agent discovers it
 
@@ -154,6 +141,11 @@ Hooks and CI can run `traits check`, `traits derive` (input JSON on stdin), and
 When nothing is selected, it prints a note on stderr and exits 0. `derive`
 prints the tagged outcome as JSON and exits 2 on failure. The subcommands skip
 the launcher's dependency install, so install dependencies first.
+
+For an editor hook,
+`traits check --stdin --stdin-filepath <repo-relative path> --kind edit|write`
+checks code from stdin. Grouped traits under `.agents/traits/<group>/` are
+read-only and use their `paths` and `when` filters.
 
 To let `--model` choose the Jev model, export `layerDecisionModel` as a function
 `({ model }) => Layer`. It receives `jev-latest` by default. A `Layer` export
@@ -221,22 +213,13 @@ a clean review, and no automatic migration is performed.
 
 ### Reconciliation fails after approval
 
-Conflict reconciliation and trait decomposition use the configured
-`LanguageModel` to generate schema-validated JSON. A
-`LanguageModel.generateObject` / `StructuredOutputError` can mean the provider
-returned plain text instead of JSON; it does not necessarily indicate an
-approval-form failure. Generation completes before replacements are written or
-originals are removed.
-
-When using `@effect/ai-openrouter`, check that strict structured output is
-enabled in the language-model configuration, alongside any existing options:
-
-```ts
-OpenRouterLanguageModel.layer({
-  model: "openai/gpt-6.1-sol",
-  config: { strictJsonSchema: true, reasoning: { effort: "low" } }
-})
-```
+Conflict reconciliation and trait decomposition need schema-validated JSON. The
+calling agent supplies it after `GenerationRequired`, or the optional
+`LanguageModel` generates it. A `GeneratedOutputError` names the output that
+does not match its schema. A `LanguageModel.generateObject` /
+`StructuredOutputError` can mean the provider returned plain text instead of
+JSON. Enable strict structured output in the language-model configuration.
+Generation completes before replacements are written or originals are removed.
 
 Use a model and route that support structured output. Traits also explicitly
 describes the required JSON shape in its generation prompts, but provider-side

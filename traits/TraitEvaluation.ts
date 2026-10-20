@@ -3,7 +3,7 @@ import { Decision, DecisionModel } from "effect/ai"
 
 import { Assessment } from "./Assessment.ts"
 import { Source, SourceLocation } from "./Source.ts"
-import { Trait, TraitName } from "./Trait.ts"
+import { Trait, TraitId } from "./Trait.ts"
 import { TraitsContext } from "./TraitsContext.ts"
 
 export type TraitEvaluation = typeof TraitEvaluation.Type
@@ -16,7 +16,7 @@ export const TraitEvaluation = S.Struct({
 export class TraitAssessmentTooLargeError extends S.TaggedError<TraitAssessmentTooLargeError>()(
   "TraitAssessmentTooLargeError",
   {
-    traitName: TraitName,
+    traitName: TraitId,
     bytes: S.Int.check(S.isGreaterThan(0)),
     maxBytes: S.Int.check(S.isGreaterThan(0)),
     location: SourceLocation.pipe(S.optional)

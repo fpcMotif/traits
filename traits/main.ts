@@ -5,7 +5,6 @@ import { McpProtocol, McpServer } from "effect/ai"
 import { Command, Flag } from "effect/cli"
 import { FetchHttpClient } from "effect/http"
 
-import * as TraitsConfigProvider from "./_util/TraitsConfigProvider.ts"
 import * as TraitsTelemetry from "./_util/TraitsTelemetry.ts"
 import * as Cli from "./Cli.ts"
 import PackageJson from "./package.json" with { type: "json" }
@@ -91,7 +90,6 @@ const serve = (otlpEndpoint: Option.Option<URL>) =>
       toolkit.pipe(
         Layer.provide(TraitStore.layerFileSystem(".agents/traits")),
         Layer.provide(TraitsConfig.layer),
-        Layer.provide(TraitsConfigProvider.layer),
         Layer.catchCause(ConfigurationError.layer),
         Layer.provideMerge(McpServer.McpServer.layer)
       )

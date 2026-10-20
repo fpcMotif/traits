@@ -49,9 +49,9 @@ export const CheckTraits = Tool.make("check_traits", {
       description:
         "Optional circumstances triggering this assessment, such as the workflow stage, task, or relevant surrounding facts. Does not grant authority to execute trait guidance."
     }),
-    traitNames: S.Array(Trait.TraitName).pipe(S.optional).annotate({
+    traitNames: S.Array(Trait.TraitId).pipe(S.optional).annotate({
       description:
-        "Optional unique trait names for a focused review. Omit for all stored traits; an empty array selects none."
+        "Optional unique trait names, or group/name for grouped traits, for a focused review. Omit for all stored traits; an empty array selects none."
     })
   }),
   success: S.Array(Evaluation.TraitEvaluation),
@@ -78,7 +78,7 @@ export const CheckTraits = Tool.make("check_traits", {
 export const toolkit = Toolkit.make(CheckTraits)
 
 export const selectTraits = Effect.fn("CheckTraits.selectTraits")(function* (
-  traitNames: ReadonlyArray<Trait.TraitName> | undefined
+  traitNames: ReadonlyArray<Trait.TraitId> | undefined
 ) {
   const store = yield* TraitStore
   return yield* traitNames === undefined
@@ -119,15 +119,17 @@ export const selectFiles = Effect.fn("CheckTraits.selectFiles")(function* (inclu
   )
 })
 
-export type FilePlan = Effect.Success<ReturnType<typeof planFile>>
-export const planFile = Effect.fn("CheckTraits.planFile")(function* (
+export type FilePlan = Effect.Success<ReturnType<typeof planText>>
+export const planText = Effect.fn("CheckTraits.planText")(function* (
   file: string,
+  text: string,
   traits: ReadonlyArray<Trait.Trait>,
   circumstances: string | undefined
 ) {
-  const fs = yield* FileSystem.FileSystem
-  const text = yield* fs.readFileString(file)
-  const activeTraits = pipe(traits, excludeIgnored(text))
+  const context = yield* TraitsContext
+  const path = yield* Path.Path
+  const target = { path: path.relative(context.configRoot, file).split(path.sep).join("/"), text }
+  const activeTraits = pipe(traits, Array.filter(Trait.appliesTo(target)), excludeIgnored(text))
   const chunks = Array.chunksOf(String.split(text, "\n"), 200)
   const sources = Array.map(chunks, (lines, index) =>
     Source.make({
@@ -139,6 +141,16 @@ export const planFile = Effect.fn("CheckTraits.planFile")(function* (
     activeTraits.length === 0 ? Effect.succeed([]) : Evaluation.planBatches(activeTraits, source, circumstances)
   )
   return { path: file, traits: activeTraits, sources, requests: Array.reduce(batches, 0, (n, b) => n + b.length) }
+})
+
+export const planFile = Effect.fn("CheckTraits.planFile")(function* (
+  file: string,
+  traits: ReadonlyArray<Trait.Trait>,
+  circumstances: string | undefined
+) {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(file)
+  return yield* planText(file, text, traits, circumstances)
 })
 
 export const evaluatePlan = Effect.fn("CheckTraits.evaluatePlan")(function* (

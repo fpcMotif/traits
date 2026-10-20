@@ -1,5 +1,8 @@
-import { Effect, pipe, Schema as S, String, Struct } from "effect"
+import { matchesGlob } from "node:path"
+
+import { Array, Effect, Option, pipe, Schema as S, String, Struct } from "effect"
 import { Decision, DecisionModel } from "effect/ai"
+import { dual } from "effect/Function"
 import { VariantSchema } from "effect/schema"
 
 import * as Frontmatter from "./_util/Frontmatter.ts"
@@ -14,13 +17,27 @@ export const TraitName = S.String.check(S.isPattern(/^(?!trait-)[a-z0-9]+(?:-[a-
       "The unique trait identity: a descriptive kebab-case name without a redundant trait- prefix, also used as its Markdown filename stem."
   })
 
+export type GroupedTraitName = typeof GroupedTraitName.Type
+export const GroupedTraitName = S.String.check(S.isPattern(/^(?!\.{1,2}\/)[^/\\\s]+\/(?!\.{1,2}$)[^/\\\s]+$/))
+  .pipe(S.brand("traits/GroupedTraitName"))
+  .annotate({
+    description: "A read-only grouped trait identity: the group folder and the Markdown filename stem, as group/name."
+  })
+
+export type TraitId = typeof TraitId.Type
+export const TraitId = S.Union([TraitName, GroupedTraitName]).annotate({
+  description: "A stored trait name, or group/name for a read-only grouped trait."
+})
+
+export const isGrouped = (name: TraitId): name is GroupedTraitName => name.includes("/")
+
 const variants = VariantSchema.make({
-  variants: ["stored", "frontmatter"],
+  variants: ["stored", "flat", "frontmatter"],
   defaultVariant: "stored"
 })
 
 const fields = variants.Struct({
-  name: TraitName,
+  name: variants.Field({ stored: TraitId, flat: TraitName, frontmatter: TraitName }),
   subject: S.String.check(S.isPattern(/\S/)).annotate({
     description: "The kind of artifact, action, transaction, relationship, or situation to identify and assess."
   }),
@@ -43,14 +60,81 @@ const fields = variants.Struct({
       description:
         "Optional supporting Markdown context, examples, diffs, references, or procedural detail; not hidden requirements."
     })
+    .pipe(variants.FieldOnly(["stored", "flat"])),
+  paths: S.Array(S.String)
+    .pipe(S.optional)
+    .annotate({
+      description: "Grouped traits only: globs, relative to the repository root, of the files it applies to."
+    })
+    .pipe(variants.FieldOnly(["stored"])),
+  when: S.Array(S.String)
+    .pipe(S.optional)
+    .annotate({
+      description:
+        "Grouped traits only: case-insensitive multiline regexes; the trait applies when one matches the code."
+    })
     .pipe(variants.FieldOnly(["stored"]))
 })
 
 export type Trait = typeof Trait.Type
 export const Trait = variants.extract(fields, "stored")
 
+export type FlatTrait = typeof FlatTrait.Type
+export const FlatTrait = variants.extract(fields, "flat")
+
 export type TraitFrontmatter = typeof TraitFrontmatter.Type
 export const TraitFrontmatter = variants.extract(fields, "frontmatter")
+
+const GroupedFrontmatter = S.Struct({
+  paths: S.Array(S.String).pipe(S.optional),
+  when: S.Array(S.String).pipe(S.optional)
+})
+
+const whenPattern = (source: string) => {
+  try {
+    return new RegExp(source, "im")
+  } catch {
+    return undefined
+  }
+}
+
+export const parseGrouped = Effect.fn("Trait.parseGrouped")(function* (
+  text: string,
+  file: string,
+  name: GroupedTraitName
+) {
+  const document = /^---\r?\n/.test(text)
+    ? yield* Frontmatter.parse(GroupedFrontmatter)({ text, path: file })
+    : { frontmatter: {}, body: text }
+  const body = String.trim(document.body)
+  const title = pipe(
+    String.split(body, "\n"),
+    Array.map((line) => String.trim(line.replace(/^#+/, ""))),
+    Array.findFirst(String.isNonEmpty),
+    Option.getOrElse(() => body)
+  )
+  const when = document.frontmatter.when?.filter((source) => whenPattern(source) !== undefined)
+  return yield* S.decodeEffect(Trait)({
+    name,
+    subject: "the code in the change",
+    requirement: body,
+    purpose: title,
+    ...(document.frontmatter.paths === undefined ? {} : { paths: document.frontmatter.paths }),
+    ...(when === undefined ? {} : { when })
+  })
+})
+
+export const appliesTo: {
+  (target: { readonly path: string; readonly text: string }): (trait: Trait) => boolean
+  (trait: Trait, target: { readonly path: string; readonly text: string }): boolean
+} = dual(2, (trait: Trait, target: { readonly path: string; readonly text: string }): boolean => {
+  const paths = trait.paths ?? []
+  const when = trait.when ?? []
+  return (
+    (paths.length === 0 || paths.some((pattern) => matchesGlob(target.path, pattern))) &&
+    (when.length === 0 || when.some((source) => whenPattern(source)?.test(target.text) === true))
+  )
+})
 
 export const parse = Effect.fn("Trait.parse")((text: string, path: string) =>
   pipe(

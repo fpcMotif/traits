@@ -33,6 +33,7 @@ export const DeriveTrait = Tool.make("derive_trait", {
   | The proposal takes precedence only in direct conflicts; preserve unrelated requirements, scopes, and exceptions. Resolved returns saved replacements.
   | Do not submit the same proposal again after Resolved: it is already incorporated. Inspect replacements and complete the required post-save trait checks.
   | GenerationRequired means no language model is configured: produce each request's JSON yourself from its instructions, input, and jsonSchema, then retry the identical proposal with generated holding every output so far as {id, output}. Keep the same generated when retrying after approval.
+  | GroupedTraitReadOnly means the proposal conflicts with or clarifies a grouped group/name trait, which is read-only here; nothing was written. Revise the proposal into a flat trait that does not overlap it, or change the grouped trait in its own repository.
   | Reconciliation is not transactional; on an error, inspect the store before retrying because some writes or removals may have completed.
   | Covered requires a second independent decision-model assessment of the complete saved trait against every proposed requirement. Similar intent or partial overlap is insufficient. Coverage gaps require approval-gated revision; inconclusive verification blocks writes.
   | Covered returns only independently verified existing traits; reuse them without writing a duplicate.
@@ -48,7 +49,7 @@ export const DeriveTrait = Tool.make("derive_trait", {
   | If blocked, explicitly report the blocker and state that the required post-save trait checks remain incomplete. Saving a trait does not itself check or update project files.
   `),
   parameters: S.Struct({
-    proposedTrait: Trait.Trait.annotate({
+    proposedTrait: Trait.FlatTrait.annotate({
       description:
         "The complete proposed trait, including required name, subject, authoritative requirement, and purpose; optional applicability, guidance, and Markdown context. Replaces all content on clarification while preserving the existing name."
     }),

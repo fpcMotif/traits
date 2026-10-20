@@ -10,7 +10,6 @@ const effectUrl = new URL("../../node_modules/effect/dist/index.js", import.meta
 const server = new URL("../main.ts", import.meta.url).pathname
 
 for (const fixture of [
-  { name: "unreadable environment", source: "export default {}", diagnostic: ".env" },
   {
     name: "throwing module",
     source: 'throw new Error("example module failure")',
@@ -61,7 +60,6 @@ for (const fixture of [
         yield* fs.makeDirectory(path.dirname(traitPath), { recursive: true })
         yield* fs.writeFileString(traitPath, fixture.trait)
       }
-      if (fixture.name === "unreadable environment") yield* fs.makeDirectory(path.join(cwd, ".env"))
       const requests = yield* Queue.unbounded<string>()
       const responses = yield* Queue.unbounded<string>()
       const child = yield* spawner.spawn(

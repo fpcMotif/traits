@@ -217,6 +217,10 @@ it.effect(
       "trait-example",
       pipe("a", String.repeat(81))
     ]) {
+      const result = yield* pipe({ ...minimal, name: invalid }, S.decodeEffect(Trait.FlatTrait), Effect.result)
+      expect(Result.isFailure(result)).toBe(true)
+    }
+    for (const invalid of ["../escape", "group/..", "./name", "a/b/c", "group/two words"]) {
       const result = yield* pipe({ ...minimal, name: invalid }, S.decodeEffect(Trait.Trait), Effect.result)
       expect(Result.isFailure(result)).toBe(true)
     }

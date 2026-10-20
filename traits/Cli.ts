@@ -18,7 +18,6 @@ import { Flag } from "effect/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 import { getWorktreeRoot } from "./_util/Git.ts"
-import * as TraitsConfigProvider from "./_util/TraitsConfigProvider.ts"
 import { Assessment } from "./Assessment.ts"
 import { Source } from "./Source.ts"
 import * as CheckTraits from "./toolkit/CheckTraits.ts"
@@ -26,6 +25,7 @@ import { DeriveTrait } from "./toolkit/DeriveTrait.ts"
 import * as Trait from "./Trait.ts"
 import * as Derivation from "./TraitDerivation.ts"
 import * as TraitsConfig from "./TraitsConfig.ts"
+import { TraitsContext } from "./TraitsContext.ts"
 import * as TraitStore from "./TraitStore.ts"
 import * as Verdict from "./Verdict.ts"
 
@@ -80,14 +80,10 @@ const layerDryRunStore = Layer.effect(
 
 const layerTraits = (options: { readonly model?: string | undefined; readonly dryRun?: boolean | undefined }) =>
   (options.dryRun === true ? layerDryRunStore : layerStore).pipe(
-    Layer.provideMerge(TraitsConfig.layerWith({ model: options.model })),
-    Layer.provide(TraitsConfigProvider.layer)
+    Layer.provideMerge(TraitsConfig.layerWith({ model: options.model }))
   )
 
-const layerPlanning = layerStore.pipe(
-  Layer.provideMerge(TraitsConfig.layerContext),
-  Layer.provide(TraitsConfigProvider.layer)
-)
+const layerPlanning = layerStore.pipe(Layer.provideMerge(TraitsConfig.layerContext))
 
 const changeDirectory = (path: Option.Option<string>) =>
   Option.match(path, {
@@ -111,6 +107,9 @@ const gitPaths = Effect.fn("Cli.gitPaths")(function* (root: string, args: Readon
 
 export const Target = S.Literals(["changed", "staged", "unstaged", "untracked", "files"])
 export type Target = typeof Target.Type
+
+export const Kind = S.Literals(["edit", "write"])
+export type Kind = typeof Kind.Type
 
 const targetPatterns = Effect.fn("Cli.targetPatterns")(function* (target: Exclude<Target, "files">) {
   const path = yield* Path.Path
@@ -151,7 +150,7 @@ const CheckReport = S.Struct({
 
 const PlanReport = S.Struct({
   dryRun: S.Literal(true),
-  files: S.Array(S.Struct({ path: S.String, traits: S.Array(Trait.TraitName), chunks: S.Int, requests: S.Int })),
+  files: S.Array(S.Struct({ path: S.String, traits: S.Array(Trait.TraitId), chunks: S.Int, requests: S.Int })),
   summary: S.Struct({ files: S.Int, traits: S.Int, pairs: S.Int, chunks: S.Int, requests: S.Int })
 })
 
@@ -206,7 +205,19 @@ export const checkFlags = {
     Flag.withDefault("fix" as const),
     Flag.withDescription("Lowest verdict that exits 1: fix (default), check, unsure, or never.")
   ),
-  quiet: Flag.Boolean("quiet").pipe(Flag.withDefault(false), Flag.withDescription("Print only findings."))
+  quiet: Flag.Boolean("quiet").pipe(Flag.withDefault(false), Flag.withDescription("Print only findings.")),
+  stdin: Flag.Boolean("stdin").pipe(
+    Flag.withDefault(false),
+    Flag.withDescription("Check code read from stdin instead of files. Requires --stdin-filepath.")
+  ),
+  stdinFilepath: Flag.String("stdin-filepath").pipe(
+    Flag.optional,
+    Flag.withDescription("Repository-relative path of the stdin code. Grouped trait paths and when use it.")
+  ),
+  kind: Flag.Literals("kind", Kind.literals).pipe(
+    Flag.withDefault("write" as const),
+    Flag.withDescription("With --stdin: edit for a snippet, or write (default) for a whole file.")
+  )
 }
 
 export interface CheckOptions {
@@ -223,15 +234,46 @@ export interface CheckOptions {
   readonly passThreshold: number
   readonly failOn: Verdict.FailOn
   readonly quiet: boolean
+  readonly stdin: boolean
+  readonly stdinFilepath: Option.Option<string>
+  readonly kind: Kind
 }
 
+const stdinSelection = Effect.fn("Cli.stdinSelection")(function* (
+  options: CheckOptions,
+  traits: ReadonlyArray<Trait.Trait>
+) {
+  if (options.include.length > 0 || Option.isSome(options.target)) {
+    return yield* failWith("--stdin cannot combine with --include or --target")
+  }
+  if (Option.isNone(options.stdinFilepath)) return yield* failWith("--stdin requires --stdin-filepath")
+  const context = yield* TraitsContext
+  const path = yield* Path.Path
+  const stdio = yield* Stdio.Stdio
+  const text = yield* pipe(stdio.stdin, Stream.decodeText(), Stream.mkString)
+  const file = path.resolve(context.configRoot, options.stdinFilepath.value)
+  const circumstances = Array.join(
+    [
+      ...Option.toArray(options.circumstances),
+      ...(options.kind === "edit"
+        ? [`The source is an edited snippet of ${options.stdinFilepath.value}, not the whole file.`]
+        : [])
+    ],
+    "\n"
+  )
+  const effective = circumstances === "" ? undefined : circumstances
+  const plan = yield* CheckTraits.planText(file, text, traits, effective)
+  return { target: "stdin", traits, plans: [plan], circumstances: effective }
+})
+
 const selection = Effect.fn("Cli.selection")(function* (options: CheckOptions) {
+  const traitNames = yield* S.decodeEffect(S.Array(Trait.TraitId))(options.trait)
+  const traits = yield* CheckTraits.selectTraits(traitNames.length === 0 ? undefined : traitNames)
+  if (options.stdin) return yield* stdinSelection(options, traits)
   const target = Option.getOrElse(options.target, () => (options.include.length > 0 ? "files" : "changed"))
   if (options.include.length > 0 && target !== "files") {
     return yield* failWith(`--include implies --target files; it cannot combine with --target ${target}`)
   }
-  const traitNames = yield* S.decodeEffect(S.Array(Trait.TraitName))(options.trait)
-  const traits = yield* CheckTraits.selectTraits(traitNames.length === 0 ? undefined : traitNames)
   const patterns = target === "files" ? options.include : yield* targetPatterns(target)
   const paths = yield* CheckTraits.selectFiles(patterns)
   const circumstances = Option.getOrUndefined(options.circumstances)
@@ -240,7 +282,7 @@ const selection = Effect.fn("Cli.selection")(function* (options: CheckOptions) {
   return { target, traits, plans, circumstances }
 })
 
-const noteEmpty = (target: Target, plans: ReadonlyArray<CheckTraits.FilePlan>, traits: number) =>
+const noteEmpty = (target: string, plans: ReadonlyArray<CheckTraits.FilePlan>, traits: number) =>
   plans.length === 0 || traits === 0
     ? Console.error(
         `traits check: selected nothing to check (target ${target}: ${plans.length} files, ${traits} traits).`
@@ -365,7 +407,7 @@ export const lsFlags = {
   json: Flag.Boolean("json").pipe(Flag.withDefault(false), Flag.withDescription("Print the traits as JSON."))
 }
 
-const StoredTraits = S.Array(S.Struct({ name: Trait.TraitName, path: S.String }))
+const StoredTraits = S.Array(S.Struct({ name: Trait.TraitId, path: S.String }))
 
 export const runLs = Effect.fn("Cli.ls")(
   function* (options: { readonly json: boolean }) {

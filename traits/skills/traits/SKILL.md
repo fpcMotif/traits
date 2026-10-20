@@ -405,6 +405,10 @@ checkout. Put `--otlp-endpoint` before the subcommand.
     stdout. Logs go to stderr. `--quiet` drops the stderr summary.
   - `--dry-run` prints the file and trait pairs, chunks, and Jev request count.
     It makes no network calls and needs no API key.
+  - `--stdin --stdin-filepath <repo-relative path> --kind edit|write` checks
+    code from stdin. `edit` is a snippet and `write` (default) is a whole file.
+    Grouped `paths` and `when` use the given path and the stdin code.
+  - `--trait` accepts `name` and `group/name`.
   - The exit code is 0 when no finding reaches
     `--fail-on fix|check|unsure|never` (default `fix`), 1 when one does, and 2
     for an operational failure (config, model, or I/O). Nothing selected prints
@@ -474,14 +478,25 @@ is no init command. Discover the connected server's `derive_trait` and
 The CLI's configuration layer loads and validates the default-exported object
 from repository-root `traits.ts`. Import the `TraitsConfig` type from `traits`
 and use `export default { ... } satisfies TraitsConfig`. Specify
-`layerDecisionModel` and `layerLanguageModel`; `excludes` is optional. The CLI
+`layerDecisionModel`. `layerLanguageModel` and `excludes` are optional. The CLI
 supplies platform/HTTP services. Storage remains local and has no source
-configuration. The recommended configuration uses OpenRouter for both decisions
-and generation, requiring only `OPENROUTER_API_KEY`; separate TypeSafe and
-OpenAI providers use `TYPESAFE_API_KEY` and `OPENAI_API_KEY`. Configuration
-precedence is process environment, worktree-root `.env`, then main-checkout
-`.env`. Reconnect the MCP server after changing credentials. A failed model
-request is an incomplete review, not a pass.
+configuration. The recommended configuration uses `@effect/ai-typesafe` for
+decisions and needs only `TYPESAFE_API_KEY`. The calling agent does generation.
+Traits reads configuration from the process environment only and never reads
+`.env` files. Keep the key in the macOS Keychain and start Traits through
+`varlock run --`, which resolves `.env.schema`. Reconnect the MCP server after
+changing credentials. A failed model request is an incomplete review, not a
+pass.
+
+Every folder directly under `.agents/traits` is a group, and a group can be a
+Git submodule. Each top-level `*.md` file in a group is a read-only trait named
+`group/name`. Its optional frontmatter holds only `paths` (globs relative to the
+repository root) and `when` (case-insensitive multiline regexes). The Markdown
+body is the rule, and its first non-empty line is the title. A grouped trait
+applies only to files that match `paths` and only to code that matches one
+`when` regex. Invalid regexes are skipped. `derive_trait` never writes inside a
+group. It returns `GroupedTraitReadOnly` when a proposal would change a grouped
+trait.
 
 The project MCP command leaves telemetry disabled. For optional OTLP telemetry,
 launch with `npx traits --otlp-endpoint http://127.0.0.1:4318`. The flag is an

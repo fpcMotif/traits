@@ -21,7 +21,7 @@ const proposedTrait = Trait.Trait.make({ ...original, requirement: "Use two spac
 const harness = Effect.fn("test.harness")(function* (options: {
   readonly responseText?: string | undefined
   readonly unaffected?: Trait.Trait | undefined
-  readonly relationships: Readonly<Record<Trait.TraitName, "distinct" | "clarification" | "conflict">>
+  readonly relationships: Readonly<Record<string, "distinct" | "clarification" | "conflict">>
   readonly languageModel?: boolean | undefined
   readonly decomposable?: boolean | undefined
 }) {
@@ -383,5 +383,38 @@ it.effect(
     expect(error).toMatchObject({ id: request!.id, stage: "reconcile" })
     expect(test.mutations).toEqual([])
     expect([...test.stored.values()]).toEqual([original])
+  })
+)
+
+it.effect(
+  "stops with GroupedTraitReadOnly instead of updating or removing a grouped trait",
+  Effect.fnUntraced(function* () {
+    const grouped = Trait.Trait.make({
+      name: Trait.GroupedTraitName.make("style/tabs"),
+      subject: "the code in the change",
+      requirement: "# Prefer tabs\n\nIndent code with tabs.",
+      purpose: "Prefer tabs"
+    })
+    for (const relationship of ["conflict", "clarification"] as const) {
+      const test = yield* harness({
+        relationships: { [name]: "distinct", [grouped.name]: relationship },
+        unaffected: grouped
+      })
+      const result = yield* derive({ proposedTrait, approved: true }).pipe(Effect.provide(test.layer))
+      expect(result).toMatchObject({
+        _tag: "GroupedTraitReadOnly",
+        traits: [{ name: "style/tabs" }],
+        instructions: expect.stringContaining("style/tabs")
+      })
+      expect(result).toMatchObject({ instructions: expect.stringContaining("read-only") })
+      expect(test.mutations).toEqual([])
+      expect(test.requests).toEqual([])
+    }
+    const test = yield* harness({ relationships: { [name]: "distinct" } })
+    const result = yield* derive({ proposedTrait: { ...grouped, purpose: "Other" }, approved: true }).pipe(
+      Effect.provide(test.layer)
+    )
+    expect(result).toMatchObject({ _tag: "GroupedTraitReadOnly", traits: [{ name: "style/tabs" }] })
+    expect(test.mutations).toEqual([])
   })
 )
