@@ -43,6 +43,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@effect/ai-typesafe": "^4.0.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

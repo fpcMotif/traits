@@ -64,7 +64,7 @@ export default {
 const storedTrait =
   "---\nname: indentation\nsubject: Code indentation.\nrequirement: Use tabs for indentation.\npurpose: Keep indentation consistent.\n---\n"
 
-const project = Effect.fn("test.CliProject")(function* (config: (cwd: string) => string) {
+const project = Effect.fn("test.CliProject")(function* (config: (cwd: string) => string | undefined) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
@@ -72,7 +72,8 @@ const project = Effect.fn("test.CliProject")(function* (config: (cwd: string) =>
   const git = (...args: ReadonlyArray<string>) =>
     spawner.exitCode(ChildProcess.make("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd }))
   yield* git("init", "--quiet")
-  yield* fs.writeFileString(path.join(cwd, "traits.ts"), config(cwd))
+  const source = config(cwd)
+  if (source !== undefined) yield* fs.writeFileString(path.join(cwd, "traits.ts"), source)
   yield* fs.makeDirectory(path.join(cwd, ".agents/traits"), { recursive: true })
   yield* fs.writeFileString(path.join(cwd, ".agents/traits/indentation.md"), storedTrait)
   for (const [file, text] of [
@@ -83,11 +84,16 @@ const project = Effect.fn("test.CliProject")(function* (config: (cwd: string) =>
   ] as const) {
     yield* fs.writeFileString(path.join(cwd, file), text)
   }
-  const run = Effect.fn("test.runCli")(function* (args: ReadonlyArray<string>, stdin = "") {
+  const run = Effect.fn("test.runCli")(function* (
+    args: ReadonlyArray<string>,
+    stdin = "",
+    env?: Readonly<Record<string, string>>
+  ) {
     const child = yield* spawner.spawn(
       ChildProcess.make(process.execPath, [server, ...args], {
         cwd,
-        stdin: Stream.make(stdin).pipe(Stream.encodeText)
+        stdin: Stream.make(stdin).pipe(Stream.encodeText),
+        ...(env === undefined ? {} : { env })
       })
     )
     const [stdout, stderr, exitCode] = yield* Effect.all(
@@ -299,6 +305,67 @@ it.effect(
       "style/hooks",
       "style/tabs"
     ])
+  }, Effect.provide(NodeServices.layer)),
+  { timeout: 60000 }
+)
+
+it.effect(
+  "without traits.ts, check uses the built-in TypeSafe config: dry runs need no key, a missing key exits 2",
+  Effect.fn("test.CliDefaultConfig")(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { cwd, run } = yield* project(() => undefined)
+    const marker = path.join(cwd, "fetch-called")
+    const stub = path.join(cwd, "stub-fetch.mjs")
+    yield* fs.writeFileString(
+      stub,
+      `import { writeFileSync } from "node:fs"\nglobalThis.fetch = async () => { writeFileSync(${JSON.stringify(marker)}, "called"); throw new Error("network stubbed") }\n`
+    )
+    const { TYPESAFE_API_KEY: _ignored, ...inherited } = process.env
+    const env = (extra: Readonly<Record<string, string>> = {}) => ({
+      ...Object.fromEntries(
+        Object.entries(inherited).filter((entry): entry is [string, string] => entry[1] !== undefined)
+      ),
+      NODE_OPTIONS: `--import=${stub}`,
+      ...extra
+    })
+    const plan = yield* run(["check", "--include", "bad.ts", "--dry-run", "--json"], "", env())
+    expect(plan.exitCode).toBe(0)
+    expect(JSON.parse(plan.stdout)).toMatchObject({ files: [{ traits: ["indentation"], requests: 1 }] })
+    const stdin = yield* run(
+      ["check", "--stdin", "--stdin-filepath", "a.ts", "--kind", "edit", "--dry-run"],
+      "export const x = 1\n",
+      env()
+    )
+    expect(stdin.exitCode).toBe(0)
+    const missing = yield* run(["check", "--include", "bad.ts", "--json"], "", env())
+    expect(missing.exitCode).toBe(2)
+    expect(missing.stdout).toBe("")
+    for (const text of ["TYPESAFE_API_KEY", "typesafe-api-key", "Varlock"]) expect(missing.stderr).toContain(text)
+    expect(yield* fs.exists(marker)).toBe(false)
+    const keyed = yield* run(
+      ["check", "--include", "bad.ts", "--json"],
+      "",
+      env({ TYPESAFE_API_KEY: "test-key-value" })
+    )
+    expect(keyed.exitCode).toBe(2)
+    expect(keyed.stderr).not.toContain("test-key-value")
+    expect(yield* fs.exists(marker)).toBe(true)
+  }, Effect.provide(NodeServices.layer)),
+  { timeout: 60000 }
+)
+
+it.effect(
+  "an existing traits.ts still wins over the built-in config",
+  Effect.fn("test.CliConfigWins")(function* () {
+    const { run } = yield* project(() => fakeConfig)
+    const { TYPESAFE_API_KEY: _ignored, ...inherited } = process.env
+    const env = Object.fromEntries(
+      Object.entries(inherited).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    )
+    const result = yield* run(["check", "--include", "bad.ts", "--json"], "", env)
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).not.toContain("TYPESAFE_API_KEY")
   }, Effect.provide(NodeServices.layer)),
   { timeout: 60000 }
 )

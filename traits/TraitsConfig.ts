@@ -1,5 +1,6 @@
+import { TypeSafeClient, TypeSafeDecisionModel } from "@effect/ai-typesafe"
 import type { NodeServices } from "@effect/platform-node"
-import { Array, Data, Effect, Layer, Path, pipe, Schema as S, Semaphore } from "effect"
+import { Array, Config, Data, Effect, FileSystem, Layer, Path, pipe, Schema as S, Semaphore } from "effect"
 import { DecisionModel, LanguageModel } from "effect/ai"
 import { HttpClient } from "effect/http"
 
@@ -56,12 +57,32 @@ export class FixedDecisionModelError extends Data.TaggedError("FixedDecisionMode
   }
 }
 
+export class MissingApiKeyError extends Data.TaggedError("MissingApiKeyError")<{}> {
+  override get message() {
+    return "TYPESAFE_API_KEY is not set. Without traits.ts, Traits uses the TypeSafe decision model and reads its key from the process environment only. Provide it from the Keychain item typesafe-api-key through Varlock (varlock run -- traits ...), or set it in the caller's environment."
+  }
+}
+
+export const layerDefaultDecisionModel = (options: { readonly model: string }) =>
+  Effect.gen(function* () {
+    const apiKey = yield* Config.Redacted("TYPESAFE_API_KEY").pipe(Effect.mapError(() => new MissingApiKeyError()))
+    return TypeSafeDecisionModel.layer({ model: options.model }).pipe(Layer.provide(TypeSafeClient.layer({ apiKey })))
+  }).pipe(Layer.unwrap)
+
+const importConfig = Effect.fn("TraitsConfig.import")(function* (file: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  if (!(yield* fs.exists(file))) return { layerDecisionModel: layerDefaultDecisionModel }
+  const url = yield* path.toFileUrl(file)
+  const module = yield* Effect.promise(() => import(url.href))
+  return module.default
+})
+
 const load = Effect.gen(function* () {
   const path = yield* Path.Path
   const configRoot = yield* getWorktreeRoot
-  const url = yield* path.toFileUrl(path.join(configRoot, "traits.ts"))
-  const module = yield* Effect.promise(() => import(url.href))
-  const config = yield* pipe(module.default, S.decodeUnknownEffect(TraitsConfig))
+  const source = yield* importConfig(path.join(configRoot, "traits.ts"))
+  const config = yield* pipe(source, S.decodeUnknownEffect(TraitsConfig))
   const layerContext = Layer.effect(
     TraitsContext,
     Effect.gen(function* () {
