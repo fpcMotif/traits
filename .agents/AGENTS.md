@@ -5,24 +5,17 @@ All paths below are relative to the repository root.
 ## Workspace
 
 - `traits/`: Effect-based MCP server and trait SDK.
-- `traits.sh/`: static Vite + React site; deployment is defined by root `alchemy.run.ts`.
+- `traits.sh/`: static Vite + React site. This fork does not deploy it.
 - Use bun to install packages and run scripts. Keep Node-compatible tooling; do not introduce Bun runtime APIs.
 - Use `bun run --filter traits.sh dev` for the local Vite server and `bun run --filter traits.sh build` to build static assets.
-- Deployment runs from the root with `bunx alchemy deploy alchemy.run.ts --stage <stage>`. Do not deploy, destroy, or provision resources without authorization; credentials/profile and stage must be explicit.
 
 ## Verification
 
 - Run checks from the root: `bunx vp check` for formatting/lint/types; `bun run check` (`bun check -b`) after TypeScript changes. `bun run build` runs `tsc -b` only to emit `traits/dist` for publishing.
 - Run affected suites: `bun run test:rules` and `bun run test:traits`. The traits suite may be empty; do not call an empty suite a behavior-test pass. The static site has no test project. `bun run test` runs checks, builds, and suites; docs-only edits need no build/tests.
 - After dependency changes, run `bun install`; after traits exports/publishing changes, run `bun pm pack` in `traits/` and verify the tarball's imports/types in a consumer.
-- After frontend changes, run `bun run --filter traits.sh build`. No deployment is required for this verification.
+- After frontend changes, run `bun run --filter traits.sh build`.
 - Report failures, blocked checks, and empty/skipped suites accurately.
-
-## CI Credentials
-
-- Whenever deployment configuration changes or new environment variables are introduced, update `bootstrap.ts` to provision the required GitHub Actions secrets/variables, rerun bootstrap, and expose them in the workflow's deployment environment before deploying from CI.
-- Bootstrap with `CLOUDFLARE_ACCOUNT_ID=<account-id> bunx alchemy deploy bootstrap.ts --stage bootstrap`, using an Alchemy profile authorized to create Cloudflare account tokens and manage GitHub Actions secrets/variables.
-- Deployment steps must expose `CLOUDFLARE_API_TOKEN` from `${{ secrets.CLOUDFLARE_API_TOKEN }}` and `CLOUDFLARE_ACCOUNT_ID` from `${{ vars.CLOUDFLARE_ACCOUNT_ID }}`.
 
 ## Reference Repositories
 
@@ -30,7 +23,6 @@ All paths below are relative to the repository root.
 - Prefer relevant source, tests, and examples over guesses or web searches.
 - Import normal package dependencies, never vendored source.
 - For Effect patterns and API design, consult `repos/Effect-TS/effect/`.
-- For Alchemy application and deployment patterns, consult `repos/alchemy-run/alchemy-effect/examples/`.
 
 ## Effect
 

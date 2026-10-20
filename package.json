@@ -20,7 +20,6 @@
       "@types/node": "26.6.3",
       "@types/react": "19.3.0",
       "@types/react-dom": "19.3.0",
-      "alchemy": "2.0.0-beta.80",
       "effect": "4.0.0",
       "pkg-pr-new": "0.0.91",
       "react": "19.3.0",
@@ -46,7 +45,6 @@
     "test:traits:integration": "varlock run -- vp test run --config traits.integration.config.ts"
   },
   "dependencies": {
-    "alchemy": "catalog:",
     "effect": "catalog:",
     "traits": "workspace:*"
   },
@@ -63,14 +61,11 @@
     "vite-plus": "catalog:"
   },
   "overrides": {
-    "@effect/sql-d1": "4.0.0",
-    "@effect/sql-sqlite-do": "4.0.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0",
     "vitest": "5.0.1"
   },
   "packageManager": "bun@1.4.4",
   "trustedDependencies": [
-    "esbuild",
-    "workerd"
+    "esbuild"
   ]
 }
