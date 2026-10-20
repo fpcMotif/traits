@@ -40,6 +40,10 @@ and never installs dependencies.
 - Remove the `tsc` build, `traits/dist`, the dependency-installing `bin.ts`
   launcher, and the Changesets and preview publish workflows.
 
+- `layerDecisionModel` is optional. Without it, Traits uses the TypeSafe
+  decision model with its key from `TYPESAFE_API_KEY`, so a `traits.ts` with
+  only `excludes` needs no imports. `traits check` lists files in path order.
+
 ## 0.5.9
 
 ### Patch Changes

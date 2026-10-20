@@ -15,7 +15,7 @@ for (const fixture of [
     source: 'throw new Error("example module failure")',
     diagnostic: "example module failure"
   },
-  { name: "invalid config", source: "export default {}", diagnostic: "layerDecisionModel" },
+  { name: "invalid config", source: 'export default { excludes: "generated" }', diagnostic: "excludes" },
   {
     name: "missing credentials",
     source: `import { Config, Layer } from ${JSON.stringify(effectUrl)};

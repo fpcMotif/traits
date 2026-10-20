@@ -215,14 +215,17 @@ it.effect(
 it.effect(
   "exits 2 when the traits config cannot load",
   Effect.fn("test.CliConfigFailure")(function* () {
-    const { run } = yield* project(() => "export default {}")
+    const { run } = yield* project(() => 'export default { excludes: "generated" }')
     const result = yield* run(["check", "--include", "clean.ts", "--json"])
     expect(result.exitCode).toBe(2)
     expect(result.stdout).toBe("")
-    expect(result.stderr).toContain("layerDecisionModel")
+    expect(result.stderr).toContain("excludes")
     expect(result.stderr.trim().split("\n")).toHaveLength(1)
     expect((yield* run(["derive"], "{}")).exitCode).toBe(2)
-    expect((yield* run(["check", "--include", "clean.ts", "--model", "other"])).exitCode).toBe(2)
+    const fixed = yield* project(() => fakeConfig)
+    const model = yield* fixed.run(["check", "--include", "clean.ts", "--model", "other"])
+    expect(model.exitCode).toBe(2)
+    expect(model.stderr).toContain("--model other cannot apply")
   }, Effect.provide(NodeServices.layer)),
   { timeout: 60000 }
 )
@@ -306,6 +309,37 @@ it.effect(
       "style/hooks",
       "style/tabs"
     ])
+  }, Effect.provide(NodeServices.layer)),
+  { timeout: 60000 }
+)
+
+it.effect(
+  "a traits.ts with only excludes and no imports uses the built-in TypeSafe model",
+  Effect.fn("test.CliExcludesOnlyConfig")(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { cwd, run } = yield* project(() => 'export default { excludes: ["generated/**"] }')
+    yield* fs.makeDirectory(path.join(cwd, "generated"))
+    yield* fs.writeFileString(path.join(cwd, "generated/out.ts"), "export const out = 1\n")
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[0] !== "TYPESAFE_API_KEY" && entry[1] !== undefined
+      )
+    )
+    const plan = yield* run(
+      ["check", "--include", "*.ts", "--include", "generated/*.ts", "--dry-run", "--json"],
+      "",
+      env
+    )
+    expect(plan.exitCode).toBe(0)
+    const planned = JSON.parse(plan.stdout).files.map((file: { readonly path: string }) => path.basename(file.path))
+    expect(planned).toEqual(["bad.ts", "clean.ts", "maybe.ts", "traits.ts", "unsure.ts"])
+    const missing = yield* run(["check", "--include", "bad.ts", "--json"], "", env)
+    expect(missing.exitCode).toBe(2)
+    expect(missing.stdout).toBe("")
+    expect(missing.stderr).toContain("TYPESAFE_API_KEY is not set")
+    expect(missing.stderr).not.toContain("Without traits.ts")
+    expect(missing.stderr.trim().split("\n")).toHaveLength(1)
   }, Effect.provide(NodeServices.layer)),
   { timeout: 60000 }
 )

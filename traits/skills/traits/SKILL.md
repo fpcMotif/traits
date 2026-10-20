@@ -477,16 +477,18 @@ is no init command. Discover the connected server's `derive_trait` and
 
 The CLI's configuration layer loads and validates the default-exported object
 from repository-root `traits.ts`. Import the `TraitsConfig` type from `traits`
-and use `export default { ... } satisfies TraitsConfig`. Specify
-`layerDecisionModel`. `layerLanguageModel` and `excludes` are optional. The CLI
-supplies platform/HTTP services. Storage remains local and has no source
-configuration. The recommended configuration uses `@effect/ai-typesafe` for
-decisions and needs only `TYPESAFE_API_KEY`. The calling agent does generation.
-Traits reads configuration from the process environment only and never reads
-`.env` files. Keep the key in the macOS Keychain and start Traits through
-`varlock run --`, which resolves `.env.schema`. Reconnect the MCP server after
-changing credentials. A failed model request is an incomplete review, not a
-pass.
+and use `export default { ... } satisfies TraitsConfig`. Every field is
+optional. Without `layerDecisionModel`, Traits uses the TypeSafe decision model
+with its key from `TYPESAFE_API_KEY`, and `--model` picks the Jev model. So a
+minimal `traits.ts` needs no imports, for example
+`export default { excludes: ["generated/**"] }`. The CLI supplies platform/HTTP
+services. Storage remains local and has no source configuration. The recommended
+configuration uses `@effect/ai-typesafe` for decisions and needs only
+`TYPESAFE_API_KEY`. The calling agent does generation. Traits reads
+configuration from the process environment only and never reads `.env` files.
+Keep the key in the macOS Keychain and start Traits through `varlock run --`,
+which resolves `.env.schema`. Reconnect the MCP server after changing
+credentials. A failed model request is an incomplete review, not a pass.
 
 Every folder directly under `.agents/traits` is a group, and a group can be a
 Git submodule. Each top-level `*.md` file in a group is a read-only trait named

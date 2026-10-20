@@ -71,6 +71,15 @@ it, the calling agent generates reconciliation JSON when `derive_trait` returns
 `GenerationRequired`. Preserve existing configuration and ask before replacing
 it. The selected providers determine the config's imports and model layers.
 
+Every field is optional. Without `layerDecisionModel`, Traits uses the TypeSafe
+decision model with its key from `TYPESAFE_API_KEY`, and `--model` picks the Jev
+model. A checkout that only needs exclusions can use a `traits.ts` with no
+imports:
+
+```ts
+export default { excludes: ["generated/**"] }
+```
+
 Git-ignored files are excluded by default. Explicit `excludes` can omit other
 files; use patterns such as `**/dist/**` and `node_modules/**`. Keep the default
 Git filter unless the user requests otherwise.

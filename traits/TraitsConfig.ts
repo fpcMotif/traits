@@ -26,10 +26,12 @@ export const TraitsConfig = S.Struct({
   layerDecisionModel: S.declare(
     (value): value is DecisionModelLayer | ((options: { readonly model: string }) => DecisionModelLayer) =>
       Layer.isLayer(value) || typeof value === "function"
-  ).annotate({
-    description:
-      "Decision model layer, or a function from a model id to one. The function form lets the CLI --model flag choose the model; it receives jev-latest by default."
-  }),
+  )
+    .pipe(S.withDecodingDefault(Effect.sync(() => layerDefaultDecisionModel)))
+    .annotate({
+      description:
+        "Decision model layer, or a function from a model id to one. The function form lets the CLI --model flag choose the model; it receives jev-latest by default. Defaults to the TypeSafe decision model with its key from TYPESAFE_API_KEY."
+    }),
   layerLanguageModel: S.declare(
     (
       value
@@ -59,7 +61,7 @@ export class FixedDecisionModelError extends Data.TaggedError("FixedDecisionMode
 
 export class MissingApiKeyError extends Data.TaggedError("MissingApiKeyError")<{}> {
   override get message() {
-    return "TYPESAFE_API_KEY is not set. Without traits.ts, Traits uses the TypeSafe decision model and reads its key from the process environment only. Provide it from the Keychain item typesafe-api-key through Varlock (varlock run -- traits ...), or set it in the caller's environment."
+    return "TYPESAFE_API_KEY is not set. When traits.ts is absent or exports no layerDecisionModel, Traits uses the TypeSafe decision model and reads its key from the process environment only. Provide it from the Keychain item typesafe-api-key through Varlock (varlock run -- traits ...), or set it in the caller's environment."
   }
 }
 
@@ -72,7 +74,7 @@ export const layerDefaultDecisionModel = (options: { readonly model: string }) =
 const importConfig = Effect.fn("TraitsConfig.import")(function* (file: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  if (!(yield* fs.exists(file))) return { layerDecisionModel: layerDefaultDecisionModel }
+  if (!(yield* fs.exists(file))) return {}
   const url = yield* path.toFileUrl(file)
   const module = yield* Effect.promise(() => import(url.href))
   return module.default

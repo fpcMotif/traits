@@ -107,10 +107,9 @@ export const selectFiles = Effect.fn("CheckTraits.selectFiles")(function* (inclu
     matches,
     Array.flatten,
     Array.map((file) => path.resolve(context.configRoot, file)),
-    Array.dedupe,
-    Array.sort(String.Order)
+    Array.dedupe
   )
-  return yield* Effect.filter(
+  const files = yield* Effect.filter(
     includedFiles === undefined ? resolved : Array.filter(resolved, (file) => includedFiles.has(file)),
     flow(
       fs.stat,
@@ -118,6 +117,7 @@ export const selectFiles = Effect.fn("CheckTraits.selectFiles")(function* (inclu
     ),
     { concurrency: "unbounded" }
   )
+  return Array.sort(files, String.Order)
 })
 
 export type FilePlan = Effect.Success<ReturnType<typeof planText>>
