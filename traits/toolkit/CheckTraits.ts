@@ -107,7 +107,8 @@ export const selectFiles = Effect.fn("CheckTraits.selectFiles")(function* (inclu
     matches,
     Array.flatten,
     Array.map((file) => path.resolve(context.configRoot, file)),
-    Array.dedupe
+    Array.dedupe,
+    Array.sort(String.Order)
   )
   return yield* Effect.filter(
     includedFiles === undefined ? resolved : Array.filter(resolved, (file) => includedFiles.has(file)),
@@ -129,7 +130,12 @@ export const planText = Effect.fn("CheckTraits.planText")(function* (
   const context = yield* TraitsContext
   const path = yield* Path.Path
   const target = { path: path.relative(context.configRoot, file).split(path.sep).join("/"), text }
-  const activeTraits = pipe(traits, Array.filter(Trait.appliesTo(target)), excludeIgnored(text))
+  const activeTraits = pipe(
+    traits,
+    Array.filter(Trait.appliesTo(target)),
+    excludeIgnored(text),
+    Array.sortWith((trait) => trait.name, String.Order)
+  )
   const chunks = Array.chunksOf(String.split(text, "\n"), 200)
   const sources = Array.map(chunks, (lines, index) =>
     Source.make({
