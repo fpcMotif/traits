@@ -34,6 +34,11 @@ export const TraitsConfig = S.Struct({
     ): value is Layer.Layer<LanguageModel.LanguageModel, any, NodeServices.NodeServices | HttpClient.HttpClient> =>
       Layer.isLayer(value)
   )
+    .pipe(S.optional)
+    .annotate({
+      description:
+        "Language model for trait decomposition and reconciliation. When omitted, derive_trait returns GenerationRequired and the calling agent supplies the generated JSON."
+    })
 })
 
 export const layer = Effect.gen(function* () {
@@ -45,8 +50,10 @@ export const layer = Effect.gen(function* () {
   return Layer.mergeAll(
     // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context
     config.layerDecisionModel.pipe(Layer.orDie),
-    // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context
-    config.layerLanguageModel.pipe(Layer.orDie),
+    config.layerLanguageModel === undefined
+      ? Layer.empty
+      : // oxlint-disable-next-line effecttsgo/any-unknown-in-error-context
+        config.layerLanguageModel.pipe(Layer.orDie),
     Layer.effect(
       TraitsContext,
       Effect.gen(function* () {

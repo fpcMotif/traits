@@ -3,8 +3,9 @@ import { Array, Effect, Layer, pipe, Predicate, Record, Schema as S, Semaphore, 
 import { DecisionModel, LanguageModel } from "effect/ai"
 import { toCodecOpenAI } from "effect/ai/OpenAiStructuredOutput"
 
+import * as Generation from "../Generation.ts"
 import * as Trait from "../Trait.ts"
-import { derive } from "../TraitDerivation.ts"
+import { derive, type TraitDerivation } from "../TraitDerivation.ts"
 import { TraitsContext } from "../TraitsContext.ts"
 import * as TraitStore from "../TraitStore.ts"
 
@@ -21,6 +22,8 @@ const harness = Effect.fn("test.harness")(function* (options: {
   readonly responseText?: string | undefined
   readonly unaffected?: Trait.Trait | undefined
   readonly relationships: Readonly<Record<Trait.TraitName, "distinct" | "clarification" | "conflict">>
+  readonly languageModel?: boolean | undefined
+  readonly decomposable?: boolean | undefined
 }) {
   const stored = new Map([[original.name, original]])
   if (options.unaffected !== undefined) stored.set(options.unaffected.name, options.unaffected)
@@ -28,7 +31,7 @@ const harness = Effect.fn("test.harness")(function* (options: {
   const requests: Array<LanguageModel.ProviderOptions> = []
   const decisionModel = yield* DecisionModel.make({
     decide: Effect.fnUntraced(function* (request) {
-      let label = "atomic"
+      let label = options.decomposable === true ? "decomposable" : "atomic"
       let labels = ["atomic", "decomposable"]
       if (Predicate.hasProperty(request.state, "trait")) {
         const trait = yield* pipe(request.state.trait, S.decodeUnknownEffect(Trait.Trait), Effect.orDie)
@@ -90,9 +93,11 @@ const harness = Effect.fn("test.harness")(function* (options: {
       })
   })
   const semaphore = yield* Semaphore.make(4)
+  const layerLanguageModel =
+    options.languageModel === false ? undefined : Layer.succeed(LanguageModel.LanguageModel, languageModel)
   const layer = Layer.mergeAll(
     Layer.succeed(DecisionModel.DecisionModel, decisionModel),
-    Layer.succeed(LanguageModel.LanguageModel, languageModel),
+    layerLanguageModel ?? Layer.empty,
     Layer.succeed(TraitStore.TraitStore, store),
     Layer.succeed(TraitsContext, {
       configRoot: "/test",
@@ -103,7 +108,7 @@ const harness = Effect.fn("test.harness")(function* (options: {
         excludeGitignored: true,
         excludes: [],
         layerDecisionModel: Layer.succeed(DecisionModel.DecisionModel, decisionModel),
-        layerLanguageModel: Layer.succeed(LanguageModel.LanguageModel, languageModel)
+        layerLanguageModel
       }
     })
   )
@@ -301,5 +306,82 @@ it.effect(
     expect(result._tag).toBe("Resolved")
     expect(test.mutations).toEqual(["add", "rm"])
     expect([...test.stored.keys()]).toEqual([replacementName])
+  })
+)
+
+const generationRequests = (result: TraitDerivation) => {
+  if (result._tag !== "GenerationRequired") throw new Error(`Expected GenerationRequired, got ${result._tag}`)
+  return result.requests
+}
+
+it.effect(
+  "returns GenerationRequired for reconciliation without a language model, then resolves with agent output",
+  Effect.fnUntraced(function* () {
+    const test = yield* harness({ languageModel: false, relationships: { [name]: "conflict" } })
+    const pending = yield* derive({ proposedTrait }).pipe(Effect.provide(test.layer))
+    const [request] = generationRequests(pending)
+    expect(generationRequests(pending)).toHaveLength(1)
+    expect(request).toMatchObject({
+      stage: "reconcile",
+      instructions: expect.stringContaining('Return only a JSON object with this shape: {"traits":[{"name":'),
+      input: expect.stringContaining(proposedTrait.requirement),
+      jsonSchema: { type: "object", required: ["traits"] }
+    })
+    expect(test.mutations).toEqual([])
+    const generated = [{ id: request!.id, output: { traits: [proposedTrait] } }]
+    const approval = yield* derive({ proposedTrait, generated }).pipe(Effect.provide(test.layer))
+    expect(approval).toMatchObject({
+      _tag: "ApprovalRequired",
+      message: expect.stringContaining(`Replacement traits:\n\n${Trait.serialize(proposedTrait)}`)
+    })
+    expect(test.mutations).toEqual([])
+    const result = yield* derive({ proposedTrait, generated, approved: true }).pipe(Effect.provide(test.layer))
+    expect(result).toMatchObject({ _tag: "Resolved", traits: [proposedTrait] })
+    expect(test.mutations).toEqual(["update", "rm"])
+    expect(test.stored.get(name)).toEqual(proposedTrait)
+    expect(test.requests).toEqual([])
+  })
+)
+
+it.effect(
+  "returns GenerationRequired for decomposition without a language model and feeds agent output into reconciliation",
+  Effect.fnUntraced(function* () {
+    const test = yield* harness({ languageModel: false, decomposable: true, relationships: { [name]: "conflict" } })
+    const decompose = generationRequests(yield* derive({ proposedTrait }).pipe(Effect.provide(test.layer)))
+    expect(Array.map(decompose, (request) => request.stage)).toEqual(["decompose", "decompose"])
+    expect(Array.map(decompose, (request) => request.input)).toEqual([
+      Trait.serialize(original),
+      Trait.serialize(proposedTrait)
+    ])
+    const generated = Array.map(decompose, (request, index) => ({
+      id: request.id,
+      output: { traits: [`Agent rule ${index}a.`, `Agent rule ${index}b.`] }
+    }))
+    const [reconcile] = generationRequests(yield* derive({ proposedTrait, generated }).pipe(Effect.provide(test.layer)))
+    expect(reconcile).toMatchObject({ stage: "reconcile", input: expect.stringContaining("Agent rule 1b.") })
+    const result = yield* derive({
+      proposedTrait,
+      generated: [...generated, { id: reconcile!.id, output: { traits: [proposedTrait] } }],
+      approved: true
+    }).pipe(Effect.provide(test.layer))
+    expect(result).toMatchObject({ _tag: "Resolved", traits: [proposedTrait] })
+    expect(test.stored.get(name)).toEqual(proposedTrait)
+  })
+)
+
+it.effect(
+  "fails loudly on agent output that does not match the generation schema",
+  Effect.fnUntraced(function* () {
+    const test = yield* harness({ languageModel: false, relationships: { [name]: "conflict" } })
+    const [request] = generationRequests(yield* derive({ proposedTrait }).pipe(Effect.provide(test.layer)))
+    const error = yield* derive({
+      proposedTrait,
+      generated: [{ id: request!.id, output: { traits: [] } }],
+      approved: true
+    }).pipe(Effect.provide(test.layer), Effect.flip)
+    expect(error).toBeInstanceOf(Generation.GeneratedOutputError)
+    expect(error).toMatchObject({ id: request!.id, stage: "reconcile" })
+    expect(test.mutations).toEqual([])
+    expect([...test.stored.values()]).toEqual([original])
   })
 )

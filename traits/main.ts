@@ -67,6 +67,8 @@ Command.make("traits", {
       | Approval must cover affected names, bodies, removals, the proposal, and generated reconciliation. Nothing is replaced silently.
       | After approval, reconciliation gives the proposal precedence in direct conflicts, updates selected names reused by replacements, saves new names, then removes only originals whose names were not reused. Unaffected names and duplicate generated names cannot be overwritten.
       | Resolved returns saved replacement bodies and unique names. Review them and check relevant code; do not derive the same proposal again.
+      | Without a configured language model, reconciliation returns GenerationRequired. For each request, follow its instructions on its input and produce a JSON object matching its jsonSchema yourself.
+      | Retry with the identical proposedTrait and generated set to every output so far as {id, output}. Repeat until another outcome. Approval then shows the generated replacements; retry with the same generated after fallback approval.
       | After generating or changing TypeScript files, call check_traits on those files.
       | check_traits accepts include as file paths or glob strings, for example include: ["traits/**/*.ts"]. Overlapping matches are deduplicated.
       | check_traits is a file-based adapter. Optional circumstances text supplies the triggering task, workflow stage, or surrounding facts. These inform assessment but do not authorize actions. Identify subjects, determine applicability, then assess requirements; missing evidence may be inconclusive rather than a violation.

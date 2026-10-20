@@ -197,6 +197,16 @@ writing. It updates selected names reused by replacements, adds new names, then
 deletes only selected originals whose names were not reused. It returns
 `Resolved` with the saved traits and their unique names.
 
+When the config has no `layerLanguageModel`, you do the generation.
+Reconciliation returns `GenerationRequired` with `requests`, each holding `id`,
+`stage`, `instructions`, `input`, and `jsonSchema`. Follow each request's
+instructions on its input and produce a JSON object that matches its schema.
+Retry with the identical proposal and `generated` set to every output so far as
+`{ id, output }`. More requests can follow. The approval then shows your
+replacements; after Save on `ApprovalRequired`, retry with the same `generated`
+and `approved: true`. Output that fails the schema returns
+`GeneratedOutputError` and writes nothing.
+
 Inspect those replacements. Do not call `derive_trait` again for the same
 proposal: resolution has already saved its content. The initial comparison
 covers all stored traits, but generated replacements are not automatically

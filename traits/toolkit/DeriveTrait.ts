@@ -1,6 +1,7 @@
 import { Schema as S, String } from "effect"
-import { DecisionModel, LanguageModel, McpSchema, Tool, Toolkit } from "effect/ai"
+import { DecisionModel, McpSchema, Tool, Toolkit } from "effect/ai"
 
+import * as Generation from "../Generation.ts"
 import * as Trait from "../Trait.ts"
 import * as Derivation from "../TraitDerivation.ts"
 import { TraitsContext } from "../TraitsContext.ts"
@@ -31,6 +32,7 @@ export const DeriveTrait = Tool.make("derive_trait", {
   | Nothing is replaced before approval. After approval, validate unique replacement names against unaffected traits, update reused selected names, save new names, then delete only selected originals whose names were not reused.
   | The proposal takes precedence only in direct conflicts; preserve unrelated requirements, scopes, and exceptions. Resolved returns saved replacements.
   | Do not submit the same proposal again after Resolved: it is already incorporated. Inspect replacements and complete the required post-save trait checks.
+  | GenerationRequired means no language model is configured: produce each request's JSON yourself from its instructions, input, and jsonSchema, then retry the identical proposal with generated holding every output so far as {id, output}. Keep the same generated when retrying after approval.
   | Reconciliation is not transactional; on an error, inspect the store before retrying because some writes or removals may have completed.
   | Covered requires a second independent decision-model assessment of the complete saved trait against every proposed requirement. Similar intent or partial overlap is insufficient. Coverage gaps require approval-gated revision; inconclusive verification blocks writes.
   | Covered returns only independently verified existing traits; reuse them without writing a duplicate.
@@ -53,12 +55,21 @@ export const DeriveTrait = Tool.make("derive_trait", {
     approved: S.Boolean.pipe(S.optional).annotate({
       description:
         "Fallback approval for the exact proposal and automatically selected action shown to the user, including any existing trait being updated. Set true only after approval; native clients still receive a form. Does not bypass relationship checks."
+    }),
+    generated: S.Array(Generation.GeneratedOutput).pipe(S.optional).annotate({
+      description:
+        "Your outputs for GenerationRequired requests, each as {id, output}. Include every output from earlier GenerationRequired responses for this proposal."
     })
   }),
   success: Derivation.TraitDerivation,
-  failure: S.Union([S.TaggedStruct("AiError", { message: S.String }), TraitStoreError, McpSchema.ElicitationDeclined]),
+  failure: S.Union([
+    S.TaggedStruct("AiError", { message: S.String }),
+    TraitStoreError,
+    Generation.GeneratedOutputError,
+    McpSchema.ElicitationDeclined
+  ]),
   failureMode: "return",
-  dependencies: [DecisionModel.DecisionModel, LanguageModel.LanguageModel, TraitsContext, TraitStore]
+  dependencies: [DecisionModel.DecisionModel, TraitsContext, TraitStore]
 })
   .annotate(Tool.Title, "Derive Trait")
   .annotate(Tool.Readonly, false)

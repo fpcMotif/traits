@@ -83,9 +83,10 @@ required `DecisionModel` or `LanguageModel` service.
 Create `traits.ts` at the current Git worktree root. Import `TraitsConfig` from
 `traits` and use `export default { ... } satisfies TraitsConfig`. Build
 `layerDecisionModel` and `layerLanguageModel` from the selected providers and
-models, checking their installed APIs. Preserve existing configuration and ask
-before replacing it. The selected providers determine the config's imports and
-model layers.
+models, checking their installed APIs. `layerLanguageModel` is optional: without
+it, the calling agent generates reconciliation JSON when `derive_trait` returns
+`GenerationRequired`. Preserve existing configuration and ask before replacing
+it. The selected providers determine the config's imports and model layers.
 
 Git-ignored files are excluded by default. Explicit `excludes` can omit other
 files; use patterns such as `**/dist/**` and `node_modules/**`. Keep the default

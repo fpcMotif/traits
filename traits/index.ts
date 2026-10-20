@@ -1,4 +1,5 @@
 export * as Assessment from "./Assessment.ts"
+export * as Generation from "./Generation.ts"
 export * as Source from "./Source.ts"
 export * as Trait from "./Trait.ts"
 export * as TraitConflict from "./TraitConflict.ts"
