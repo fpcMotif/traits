@@ -6,10 +6,11 @@
   "scripts": {
     "tasks": "node tasks/main.ts",
     "changeset": "changeset",
-    "format": "vp fmt .",
-    "prepare": "effect-tsgo patch --oxlint",
+    "format": "bun fmt .",
+    "lint": "bun lint",
+    "lint:effect": "node tasks/main.ts effect-diagnostics",
     "build": "tsc -b tsconfig.json",
-    "test": "vp check && pnpm build && pnpm test:rules && pnpm test:traits",
+    "test": "bun fmt --check . && bun lint && bun run lint:effect && bun run build && bun run test:rules && bun run test:traits",
     "test:rules": "vp test run --project rules",
     "test:traits": "vp test run --project traits --passWithNoTests",
     "test:traits:integration": "vp test run --config traits.integration.config.ts"
